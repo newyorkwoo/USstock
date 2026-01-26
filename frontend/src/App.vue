@@ -8,126 +8,162 @@
       </div>
     </header>
 
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8">
-      <!-- Index Selection Tabs -->
-      <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-        <div class="flex space-x-4 border-b border-gray-200">
+    <!-- Main Navigation -->
+    <div class="bg-white border-b border-gray-200">
+      <div class="container mx-auto px-4">
+        <div class="flex space-x-1">
           <button
-            v-for="index in indices"
-            :key="index.symbol"
-            @click="selectedIndex = index.symbol"
+            @click="currentView = 'indices'"
             :class="[
-              'px-6 py-3 font-semibold transition-colors',
-              selectedIndex === index.symbol
+              'px-6 py-4 font-semibold transition-colors',
+              currentView === 'indices'
                 ? 'border-b-2 border-blue-500 text-blue-600'
                 : 'text-gray-600 hover:text-blue-500'
             ]"
           >
-            {{ index.name }}
+            三大指數分析
+          </button>
+          <button
+            @click="currentView = 'nasdaq-full'"
+            :class="[
+              'px-6 py-4 font-semibold transition-colors',
+              currentView === 'nasdaq-full'
+                ? 'border-b-2 border-blue-500 text-blue-600'
+                : 'text-gray-600 hover:text-blue-500'
+            ]"
+          >
+            那斯達克全部股票相關性
           </button>
         </div>
       </div>
+    </div>
 
-      <!-- Loading State -->
-      <div v-if="loading" class="text-center py-12">
-        <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
-        <p class="mt-4 text-gray-600">載入數據中...</p>
-      </div>
+    <!-- Main Content -->
+    <main class="container mx-auto px-4 py-8">
+      <!-- 三大指數分析視圖 -->
+      <div v-if="currentView === 'indices'">
+        <!-- Index Selection Tabs -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+          <div class="flex space-x-4 border-b border-gray-200">
+            <button
+              v-for="index in indices"
+              :key="index.symbol"
+              @click="selectedIndex = index.symbol"
+              :class="[
+                'px-6 py-3 font-semibold transition-colors',
+                selectedIndex === index.symbol
+                  ? 'border-b-2 border-blue-500 text-blue-600'
+                  : 'text-gray-600 hover:text-blue-500'
+              ]"
+            >
+              {{ index.name }}
+            </button>
+          </div>
+        </div>
 
-      <!-- K-Line Chart -->
-      <div v-else class="bg-white rounded-lg shadow-md p-6">
-        <div class="mb-6">
-          <div class="flex items-center justify-between">
-            <div>
-              <h2 class="text-2xl font-bold text-gray-800">
-                {{ getCurrentIndexName() }} K線圖
-              </h2>
-              <p class="text-sm text-gray-500 mt-1">收盤價走勢圖</p>
-              <p v-if="dataRange" class="text-xs text-blue-600 mt-1">
-                📊 數據範圍: {{ dataRange.start }} 至 {{ dataRange.end }} (共 {{ dataRange.count.toLocaleString() }} 筆)
+        <!-- Loading State -->
+        <div v-if="loading" class="text-center py-12">
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <p class="mt-4 text-gray-600">載入數據中...</p>
+        </div>
+
+        <!-- K-Line Chart -->
+        <div v-else class="bg-white rounded-lg shadow-md p-6">
+          <div class="mb-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <h2 class="text-2xl font-bold text-gray-800">
+                  {{ getCurrentIndexName() }} K線圖
+                </h2>
+                <p class="text-sm text-gray-500 mt-1">收盤價走勢圖</p>
+                <p v-if="dataRange" class="text-xs text-blue-600 mt-1">
+                  📊 數據範圍: {{ dataRange.start }} 至 {{ dataRange.end }} (共 {{ dataRange.count.toLocaleString() }} 筆)
+                </p>
+              </div>
+            
+              <!-- 日期選擇器 -->
+              <div class="flex items-center space-x-3">
+                <div class="flex flex-col">
+                  <label class="text-xs text-gray-600 mb-1">起始日期</label>
+                  <input
+                    type="date"
+                    v-model="startDate"
+                    :max="endDate"
+                    class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div class="flex flex-col">
+                  <label class="text-xs text-gray-600 mb-1">結束日期</label>
+                  <input
+                    type="date"
+                    v-model="endDate"
+                    :min="startDate"
+                    :max="today"
+                    class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <button
+                  @click="applyDateFilter"
+                  class="mt-5 px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-semibold"
+                >
+                  套用
+                </button>
+                <button
+                  @click="resetDateFilter"
+                  class="mt-5 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                  title="重置為全部資料"
+                >
+                  重置
+                </button>
+              </div>
+            </div>
+          </div>
+        
+          <KLineChart
+            v-if="chartData"
+            :data="chartData"
+            :symbol="selectedIndex"
+          />
+
+          <!-- Statistics -->
+          <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <p class="text-sm text-gray-600">當前價格</p>
+              <p class="text-2xl font-bold text-gray-800">
+                {{ currentPrice }}
               </p>
             </div>
-            
-            <!-- 日期選擇器 -->
-            <div class="flex items-center space-x-3">
-              <div class="flex flex-col">
-                <label class="text-xs text-gray-600 mb-1">起始日期</label>
-                <input
-                  type="date"
-                  v-model="startDate"
-                  :max="endDate"
-                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div class="flex flex-col">
-                <label class="text-xs text-gray-600 mb-1">結束日期</label>
-                <input
-                  type="date"
-                  v-model="endDate"
-                  :min="startDate"
-                  :max="today"
-                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <button
-                @click="applyDateFilter"
-                class="mt-5 px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-semibold"
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <p class="text-sm text-gray-600">漲跌幅</p>
+              <p 
+                class="text-2xl font-bold"
+                :class="priceChange >= 0 ? 'text-bull-red' : 'text-bear-green'"
               >
-                套用
-              </button>
-              <button
-                @click="resetDateFilter"
-                class="mt-5 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-                title="重置為全部資料"
-              >
-                重置
-              </button>
+                {{ priceChange >= 0 ? '+' : '' }}{{ priceChange }}%
+              </p>
+            </div>
+            <div class="bg-gray-50 p-4 rounded-lg">
+              <p class="text-sm text-gray-600">成交量</p>
+              <p class="text-2xl font-bold text-gray-800">
+                {{ volume }}
+              </p>
             </div>
           </div>
-        </div>
-        
-        <KLineChart
-          v-if="chartData"
-          :data="chartData"
-          :symbol="selectedIndex"
-        />
 
-        <!-- Statistics -->
-        <div class="mt-8 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div class="bg-gray-50 p-4 rounded-lg">
-            <p class="text-sm text-gray-600">當前價格</p>
-            <p class="text-2xl font-bold text-gray-800">
-              {{ currentPrice }}
-            </p>
+          <!-- Correlation Analysis -->
+          <div class="mt-8">
+            <h3 class="text-xl font-bold text-gray-800 mb-4">成分股相關性分析</h3>
+            <CorrelationTable
+              v-if="correlationData"
+              :data="correlationData"
+              :indexName="getCurrentIndexName()"
+            />
           </div>
-          <div class="bg-gray-50 p-4 rounded-lg">
-            <p class="text-sm text-gray-600">漲跌幅</p>
-            <p 
-              class="text-2xl font-bold"
-              :class="priceChange >= 0 ? 'text-bull-red' : 'text-bear-green'"
-            >
-              {{ priceChange >= 0 ? '+' : '' }}{{ priceChange }}%
-            </p>
-          </div>
-          <div class="bg-gray-50 p-4 rounded-lg">
-            <p class="text-sm text-gray-600">成交量</p>
-            <p class="text-2xl font-bold text-gray-800">
-              {{ volume }}
-            </p>
-          </div>
-        </div>
-
-        <!-- Correlation Analysis -->
-        <div class="mt-8">
-          <h3 class="text-xl font-bold text-gray-800 mb-4">成分股相關性分析</h3>
-          <CorrelationTable
-            v-if="correlationData"
-            :data="correlationData"
-            :indexName="getCurrentIndexName()"
-          />
         </div>
       </div>
+      
+      <!-- 那斯達克全部股票相關性分析視圖 -->
+      <NasdaqFullAnalysis v-else-if="currentView === 'nasdaq-full'" />
     </main>
   </div>
 </template>
@@ -136,15 +172,19 @@
 import { ref, onMounted, watch } from 'vue'
 import KLineChart from './components/KLineChart.vue'
 import CorrelationTable from './components/CorrelationTable.vue'
+import NasdaqFullAnalysis from './views/NasdaqFullAnalysis.vue'
 import { fetchIndexData, fetchCorrelationData } from './utils/api'
 
 export default {
   name: 'App',
   components: {
     KLineChart,
-    CorrelationTable
+    CorrelationTable,
+    NasdaqFullAnalysis
   },
   setup() {
+    const currentView = ref('indices')  // 'indices' or 'nasdaq-full'
+    
     const indices = [
       { symbol: '^IXIC', name: 'NASDAQ' },
       { symbol: '^DJI', name: '道瓊工業指數' },
@@ -227,6 +267,7 @@ export default {
     })
 
     return {
+      currentView,
       indices,
       selectedIndex,
       loading,
