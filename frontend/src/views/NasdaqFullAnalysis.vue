@@ -56,13 +56,23 @@
       </div>
       
       <div class="flex justify-between items-center">
-        <button 
-          @click="startAnalysis" 
-          :disabled="loading"
-          class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-        >
-          {{ loading ? '分析中...' : '開始分析' }}
-        </button>
+        <div class="flex space-x-3">
+          <button 
+            @click="downloadAllData" 
+            :disabled="downloading"
+            class="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {{ downloading ? '下載中...' : '📥 下載全部股票資料' }}
+          </button>
+          
+          <button 
+            @click="startAnalysis" 
+            :disabled="loading"
+            class="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+          >
+            {{ loading ? '分析中...' : '📊 開始分析' }}
+          </button>
+        </div>
         
         <div v-if="analysisInfo" class="text-sm text-gray-600">
           <span class="mr-4">總共分析: {{ analysisInfo.total_analyzed }} 支股票</span>
@@ -72,11 +82,28 @@
       </div>
       
       <!-- 進度條 -->
-      <div v-if="loading" class="mt-4">
+      <div v-if="loading || downloading" class="mt-4">
         <div class="w-full bg-gray-200 rounded-full h-2">
-          <div class="bg-blue-600 h-2 rounded-full transition-all duration-300" :style="{ width: progress + '%' }"></div>
+          <div 
+            class="h-2 rounded-full transition-all duration-300" 
+            :class="downloading ? 'bg-green-600' : 'bg-blue-600'"
+            :style="{ width: progress + '%' }"
+          ></div>
         </div>
         <p class="text-sm text-gray-600 mt-2 text-center">{{ progressText }}</p>
+      </div>
+      
+      <!-- 下載成功訊息 -->
+      <div v-if="downloadSuccess" class="mt-4 p-4 bg-green-50 border border-green-200 rounded-md">
+        <div class="flex items-start">
+          <svg class="h-5 w-5 text-green-600 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+          <div>
+            <p class="text-green-800 font-semibold">下載完成！</p>
+            <p class="text-green-700 text-sm mt-1">{{ downloadSuccess }}</p>
+          </div>
+        </div>
       </div>
       
       <!-- 錯誤訊息 -->
@@ -203,6 +230,8 @@ const endDate = ref(new Date().toISOString().split('T')[0])
 const minCorrelation = ref(0.5)
 const limit = ref(100)
 const loading = ref(false)
+const downloading = ref(false)
+const downloadSuccess = ref('')
 const error = ref('')
 const progress = ref(0)
 const progressText = ref('')
@@ -246,9 +275,59 @@ const getCorrelationColor = (correlation) => {
   return 'text-gray-600'
 }
 
+const downloadAllData = async () => {
+  downloading.value = true
+  downloadSuccess.value = ''
+  error.value = ''
+  progress.value = 0
+  progressText.value = '正在準備下載...'
+  
+  try {
+    // 模擬進度更新
+    const progressInterval = setInterval(() => {
+      if (progress.value < 90) {
+        progress.value += 3
+        if (progress.value < 30) {
+          progressText.value = '正在下載股票數據 (批次 1/42)...'
+        } else if (progress.value < 60) {
+          progressText.value = '正在下載股票數據 (批次 20/42)...'
+        } else {
+          progressText.value = '正在下載股票數據 (批次 40/42)...'
+        }
+      }
+    }, 2000)
+    
+    const response = await axios.post('/api/nasdaq/download-all', {
+      start_date: startDate.value,
+      end_date: endDate.value
+    })
+    
+    clearInterval(progressInterval)
+    progress.value = 100
+    progressText.value = '下載完成！'
+    
+    const summary = response.data.summary
+    downloadSuccess.value = `成功下載 ${summary.successful_downloads}/${summary.total_tickers} 支股票 (成功率: ${summary.success_rate})\n總數據點: ${summary.total_data_points.toLocaleString()}`
+    
+    console.log('下載結果:', response.data)
+    
+    // 3秒後清除成功訊息
+    setTimeout(() => {
+      downloadSuccess.value = ''
+    }, 5000)
+    
+  } catch (err) {
+    error.value = err.response?.data?.error || err.message || '下載失敗'
+    console.error('下載錯誤:', err)
+  } finally {
+    downloading.value = false
+  }
+}
+
 const startAnalysis = async () => {
   loading.value = true
   error.value = ''
+  downloadSuccess.value = ''
   progress.value = 0
   progressText.value = '正在獲取股票列表...'
   

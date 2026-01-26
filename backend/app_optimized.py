@@ -516,6 +516,116 @@ def calculate_correlation_batch_optimized(index_data: dict, stock_symbols: List[
     
     return results
 
+@app.route('/nasdaq/download-all', methods=['POST'])
+def download_all_nasdaq_stocks():
+    """下載所有那斯達克股票的歷史資料（不計算相關性）"""
+    print("\n" + "="*50)
+    print("API 請求: 下載所有那斯達克股票歷史資料")
+    print("="*50)
+    
+    try:
+        # 獲取參數
+        data = request.get_json() or {}
+        start_date = data.get('start_date', request.args.get('start_date', '2020-01-01'))
+        end_date = data.get('end_date', request.args.get('end_date', None))
+        
+        print(f"參數: start_date={start_date}, end_date={end_date}")
+        
+        # 獲取所有股票代碼
+        tickers = get_nasdaq_tickers()
+        
+        if not tickers:
+            return jsonify({'error': '無法獲取股票列表'}), 500
+        
+        print(f"共有 {len(tickers)} 支股票需要下載")
+        
+        # 分批下載所有股票數據
+        stock_data_dict = download_batch_with_rate_limit(
+            tickers, start_date, end_date,
+            max_workers=15,
+            batch_size=100
+        )
+        
+        # 統計結果
+        successful = len(stock_data_dict)
+        failed = len(tickers) - successful
+        
+        # 統計數據點數
+        total_data_points = sum(len(data['close']) for data in stock_data_dict.values())
+        
+        # 生成摘要
+        summary = {
+            'total_tickers': len(tickers),
+            'successful_downloads': successful,
+            'failed_downloads': failed,
+            'success_rate': f"{successful/len(tickers)*100:.1f}%",
+            'total_data_points': total_data_points,
+            'date_range': {
+                'start': start_date,
+                'end': end_date or datetime.now().strftime('%Y-%m-%d')
+            },
+            'downloaded_symbols': list(stock_data_dict.keys())[:50]  # 只返回前50個作為示例
+        }
+        
+        print(f"\n下載完成:")
+        print(f"  成功: {successful}/{len(tickers)} ({summary['success_rate']})")
+        print(f"  失敗: {failed}")
+        print(f"  總數據點: {total_data_points:,}")
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'成功下載 {successful} 支股票的歷史資料',
+            'summary': summary
+        })
+        
+    except Exception as e:
+        print(f"錯誤: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/nasdaq/download-status', methods=['GET'])
+def get_download_status():
+    """獲取已緩存的股票數量"""
+    try:
+        if not REDIS_AVAILABLE:
+            return jsonify({
+                'status': 'unavailable',
+                'message': 'Redis 緩存不可用'
+            })
+        
+        # 獲取所有股票代碼
+        tickers = get_nasdaq_tickers()
+        
+        # 檢查有多少股票已被緩存
+        start_date = request.args.get('start_date', '2020-01-01')
+        end_date = request.args.get('end_date', None)
+        
+        cached_count = 0
+        cache_keys = []
+        
+        for symbol in tickers[:100]:  # 只檢查前100個以提高速度
+            cache_key = f"download_stock_close_only:{symbol}:{start_date}:{end_date}"
+            if redis_client.exists(cache_key):
+                cached_count += 1
+                cache_keys.append(symbol)
+        
+        # 估算總緩存數
+        estimated_cached = int(cached_count / 100 * len(tickers))
+        
+        return jsonify({
+            'status': 'success',
+            'total_tickers': len(tickers),
+            'sampled_tickers': 100,
+            'cached_in_sample': cached_count,
+            'estimated_total_cached': estimated_cached,
+            'cache_percentage': f"{cached_count}%",
+            'sample_cached_symbols': cache_keys[:20]
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/nasdaq/all-correlation', methods=['GET'])
 def get_all_nasdaq_correlation():
     """獲取所有那斯達克股票與指數的相關性"""
