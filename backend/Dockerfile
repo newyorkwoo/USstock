@@ -17,8 +17,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 複製應用程式代碼
 COPY . .
 
-# 創建非 root 用戶
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# 創建非 root 用戶和數據目錄
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/data && \
+    chown -R appuser:appuser /app
 USER appuser
 
 # 暴露後端端口
