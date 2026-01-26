@@ -2,6 +2,21 @@
 
 一個完整的美國股市分析專案，提供 NASDAQ、道瓊工業指數、S&P 500 三大指數的 K 線圖展示與成分股相關性分析。
 
+## 🚀 快速開始
+
+```bash
+# 1. 啟動所有服務
+docker-compose up -d
+
+# 2. （可選）自動下載最新股票資料
+./auto-download-data.sh
+
+# 3. 訪問應用
+open http://localhost
+```
+
+就這麼簡單！🎉
+
 ## 技術架構
 
 ### 前端
@@ -61,7 +76,46 @@
 
 ## 安裝與啟動
 
-### 後端啟動
+### 🐳 Docker 部署（推薦）
+
+**一鍵啟動所有服務：**
+
+```bash
+# 啟動服務
+docker-compose up -d
+
+# 查看狀態
+docker-compose ps
+
+# 查看日誌
+docker-compose logs -f
+```
+
+訪問：http://localhost
+
+**自動下載最新股票資料（可選）：**
+
+```bash
+# 啟動後自動下載最近2年的股票歷史資料
+./auto-download-data.sh
+```
+
+這個腳本會：
+
+- ✓ 等待服務完全啟動
+- ✓ 自動下載所有那斯達克股票資料（約3-5分鐘）
+- ✓ 緩存到 Redis，後續分析速度極快
+- ✓ 顯示下載統計（成功率、數據點總數等）
+
+**停止服務：**
+
+```bash
+docker-compose down
+```
+
+### 手動安裝（開發環境）
+
+#### 後端啟動
 
 ```bash
 cd backend
@@ -78,7 +132,7 @@ python app.py
 python3 app.py
 ```
 
-### 前端啟動
+#### 前端啟動
 
 ```bash
 cd frontend
