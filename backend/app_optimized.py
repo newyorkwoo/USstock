@@ -888,6 +888,7 @@ def analyze_correlation_from_local():
                 # 從本地加載股票數據
                 stock_data = data_storage.load_stock_data(symbol)
                 if not stock_data or 'dates' not in stock_data or 'close_prices' not in stock_data:
+                    analyzed_count += 1  # 計數加載失敗的股票
                     return None
                 
                 # 創建股票的日期-收盤價字典，並過濾到指定日期區間
@@ -902,6 +903,7 @@ def analyze_correlation_from_local():
                 common_dates = sorted(index_dates_set & set(stock_close_dict.keys()))
                 
                 if len(common_dates) < 30:  # 至少需要30個交易日
+                    analyzed_count += 1  # 計數交易日不足的股票
                     return None
                 
                 # 提取共同日期的收盤價
