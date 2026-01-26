@@ -23,6 +23,8 @@ services:
     container_name: usstock-backend
     ports:
       - "8000:8000"
+    volumes:
+      - stock-data:/app/data
     environment:
       - FLASK_ENV=production
       - PYTHONUNBUFFERED=1
@@ -53,6 +55,8 @@ services:
 volumes:
   redis-data:
     name: usstock-redis-data
+  stock-data:
+    name: usstock-stock-data
 
 networks:
   default:

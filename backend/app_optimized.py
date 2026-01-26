@@ -15,6 +15,7 @@ import io
 import time
 from typing import List, Dict, Optional, Tuple
 
+import data_storage  # 導入本地數據存儲模組
 app = Flask(__name__)
 CORS(app)
 
@@ -756,7 +757,72 @@ def clear_cache():
         return jsonify({'message': '緩存已清除'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+@app.route('/storage/download-all-to-local', methods=['POST'])
+def download_all_to_local():
+    """下載所有那斯達克股票歷史資料到本地存儲"""
+    try:
+        # 獲取那斯達克股票列表
+        print("正在獲取那斯達克股票列表...")
+        nasdaq_tickers = data_storage.get_nasdaq_tickers()
+        
+        start_date = request.json.get('start_date', '2010-01-01') if request.json else '2010-01-01'
+        end_date = request.json.get('end_date', None) if request.json else None
+        
+        print(f"開始下載 {len(nasdaq_tickers)} 支股票的歷史資料 (從 {start_date})")
+        
+        # 執行批量下載
+        result = data_storage.bulk_download_to_local(
+            symbols=nasdaq_tickers,
+            start_date=start_date,
+            end_date=end_date
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        print(f"下載錯誤: {str(e)}")
+        return jsonify({'error': str(e)}), 500
 
+@app.route('/storage/update-incremental', methods=['POST'])
+def update_incremental():
+    """增量更新本地存儲的股票資料（只下載新數據）"""
+    try:
+        # 獲取那斯達克股票列表
+        nasdaq_tickers = data_storage.get_nasdaq_tickers()
+        
+        end_date = request.json.get('end_date', None) if request.json else None
+        
+        print(f"開始增量更新 {len(nasdaq_tickers)} 支股票")
+        
+        # 執行批量增量更新
+        result = data_storage.bulk_update_incremental(
+            symbols=nasdaq_tickers,
+            end_date=end_date
+        )
+        
+        return jsonify(result)
+    except Exception as e:
+        print(f"更新錯誤: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/storage/stats', methods=['GET'])
+def get_storage_stats():
+    """獲取本地存儲統計資訊"""
+    try:
+        stats = data_storage.get_storage_stats()
+        return jsonify(stats)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/storage/load/<symbol>', methods=['GET'])
+def load_stock_data_from_local(symbol):
+    """從本地存儲載入指定股票的歷史資料"""
+    try:
+        data = data_storage.load_stock_data(symbol)
+        if data is None:
+            return jsonify({'error': f'找不到股票 {symbol} 的資料'}), 404
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 if __name__ == '__main__':
     print("=" * 50)
     print("美國股市分析系統 - 後端 API (優化版)")
