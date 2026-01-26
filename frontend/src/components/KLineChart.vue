@@ -7,10 +7,8 @@
 <script>
 import { ref, onMounted, watch } from 'vue'
 import { Chart, registerables } from 'chart.js'
-import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial'
-import 'chartjs-adapter-luxon'
 
-Chart.register(...registerables, CandlestickController, CandlestickElement)
+Chart.register(...registerables)
 
 export default {
   name: 'KLineChart',
@@ -29,7 +27,14 @@ export default {
     let chartInstance = null
 
     const createChart = () => {
-      if (!chartCanvas.value || !props.data || props.data.length === 0) return
+      if (!chartCanvas.value || !props.data || props.data.length === 0) {
+        console.log('Chart creation skipped:', {
+          hasCanvas: !!chartCanvas.value,
+          hasData: !!props.data,
+          dataLength: props.data?.length
+        })
+        return
+      }
 
       // 銷毀舊圖表
       if (chartInstance) {
@@ -38,35 +43,29 @@ export default {
 
       const ctx = chartCanvas.value.getContext('2d')
       
-      // 準備蠟燭圖數據格式
-      const candlestickData = props.data.map(d => ({
+      // 準備折線圖數據格式 - 使用收盤價
+      const lineData = props.data.map(d => ({
         x: d.date,
-        o: d.open,    // open
-        h: d.high,    // high
-        l: d.low,     // low
-        c: d.close    // close
+        y: d.close
       }))
 
-      chartInstance = new Chart(ctx, {
-        type: 'candlestick',
+      console.log('Creating chart with data points:', lineData.length)
+
+      try {
+        chartInstance = new Chart(ctx, {
+        type: 'line',
         data: {
           datasets: [
             {
-              label: 'K線圖',
-              data: candlestickData,
-              // 上漲蠟燭（收盤 >= 開盤）- 紅色
-              color: {
-                up: '#ef4444',      // 上漲邊框 - 紅色
-                down: '#22c55e',    // 下跌邊框 - 綠色
-                unchanged: '#999'    // 無變化 - 灰色
-              },
-              borderColor: {
-                up: '#ef4444',      // 上漲邊框 - 紅色  
-                down: '#22c55e',    // 下跌邊框 - 綠色
-                unchanged: '#999'
-              },
-              // 上漲蠟燭實心，下跌蠟燭空心
-              borderWidth: 1
+              label: '收盤價',
+              data: lineData,
+              borderColor: '#3b82f6',
+              backgroundColor: 'rgba(59, 130, 246, 0.1)',
+              borderWidth: 2,
+              fill: true,
+              tension: 0.1,
+              pointRadius: 0,
+              pointHoverRadius: 4
             }
           ]
         },
@@ -75,38 +74,29 @@ export default {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              display: false  // 不顯示圖例
+              display: false
             },
             tooltip: {
               callbacks: {
                 label: function(context) {
-                  const data = context.raw
-                  return [
-                    `日期: ${data.x}`,
-                    `開盤: ${data.o.toFixed(2)}`,
-                    `最高: ${data.h.toFixed(2)}`,
-                    `最低: ${data.l.toFixed(2)}`,
-                    `收盤: ${data.c.toFixed(2)}`,
-                    `漲跌: ${(data.c - data.o).toFixed(2)} (${((data.c - data.o) / data.o * 100).toFixed(2)}%)`
-                  ]
+                  return `收盤價: ${context.parsed.y.toFixed(2)}`
                 }
               }
             }
           },
           scales: {
             x: {
-              type: 'time',
-              time: {
-                unit: 'day',
-                displayFormats: {
-                  day: 'yyyy-MM-dd'
-                }
-              },
+              type: 'category',
               ticks: {
                 maxRotation: 45,
                 minRotation: 45,
                 autoSkip: true,
-                maxTicksLimit: 20
+                maxTicksLimit: 20,
+                callback: function(value, index) {
+                  // 每隔幾個顯示一次日期
+                  const data = this.chart.data.datasets[0].data[index]
+                  return data ? data.x : ''
+                }
               }
             },
             y: {
@@ -117,7 +107,11 @@ export default {
           }
         }
       })
+      console.log('Chart created successfully')
+    } catch (error) {
+      console.error('Error creating chart:', error)
     }
+  }
 
     onMounted(() => {
       createChart()

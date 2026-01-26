@@ -43,7 +43,7 @@
               <h2 class="text-2xl font-bold text-gray-800">
                 {{ getCurrentIndexName() }} K線圖
               </h2>
-              <p class="text-sm text-gray-500 mt-1">蠟燭圖：紅色上漲 | 綠色下跌</p>
+              <p class="text-sm text-gray-500 mt-1">收盤價走勢圖</p>
               <p v-if="dataRange" class="text-xs text-blue-600 mt-1">
                 📊 數據範圍: {{ dataRange.start }} 至 {{ dataRange.end }} (共 {{ dataRange.count.toLocaleString() }} 筆)
               </p>
