@@ -17,6 +17,54 @@ import yfinance as yf
 DATA_DIR = '/app/data/stocks'
 META_FILE = '/app/data/meta.json'
 
+def get_nasdaq_tickers():
+    """獲取所有那斯達克股票代碼"""
+    print("開始下載那斯達克股票列表...")
+    try:
+        # 從 NASDAQ 官方 FTP 下載股票列表
+        url = "ftp://ftp.nasdaqtrader.com/symboldirectory/nasdaqlisted.txt"
+        
+        try:
+            df = pd.read_csv(url, sep='|')
+            # 過濾掉測試股票和 ETF
+            df = df[df['Test Issue'] == 'N']
+            df = df[df['ETF'] == 'N']
+            
+            tickers = df['Symbol'].tolist()
+            
+            # 移除最後一行（通常是文件創建日期）
+            if tickers and not tickers[-1].replace('.', '').replace('-', '').isalnum():
+                tickers = tickers[:-1]
+            
+            print(f"✓ 成功獲取 {len(tickers)} 支那斯達克股票")
+            return tickers
+        except Exception as e:
+            print(f"從 NASDAQ FTP 下載失敗: {e}")
+            
+            # 備用方案：使用擴展的主要股票列表
+            major_tickers = [
+                'AAPL', 'MSFT', 'GOOGL', 'GOOG', 'AMZN', 'NVDA', 'META', 'TSLA',
+                'AVGO', 'COST', 'NFLX', 'AMD', 'PEP', 'CSCO', 'ADBE', 'CMCSA',
+                'INTC', 'TXN', 'QCOM', 'AMGN', 'INTU', 'AMAT', 'HON', 'ISRG',
+                'BKNG', 'VRTX', 'ADP', 'GILD', 'SBUX', 'REGN', 'MU', 'ADI',
+                'LRCX', 'PYPL', 'MDLZ', 'PANW', 'MELI', 'KLAC', 'SNPS', 'CDNS',
+                'MAR', 'ABNB', 'CTAS', 'CRWD', 'CSX', 'NXPI', 'ORLY', 'MRVL',
+                'ASML', 'FTNT', 'ADSK', 'MNST', 'DASH', 'WDAY', 'AEP', 'PCAR',
+                'CHTR', 'CPRT', 'ROST', 'PAYX', 'ODFL', 'KDP', 'FAST', 'KHC',
+                'CTSH', 'EA', 'DXCM', 'VRSK', 'GEHC', 'BKR', 'LULU', 'IDXX',
+                'XEL', 'EXC', 'MCHP', 'CCEP', 'CSGP', 'TEAM', 'ZS', 'TTWO',
+                'ANSS', 'ON', 'CDW', 'BIIB', 'ILMN', 'GFS', 'WBD', 'FANG',
+                'DDOG', 'MDB', 'ZM', 'MRNA', 'ENPH', 'ALGN', 'RIVN', 'LCID',
+                'COIN', 'ROKU', 'ZI', 'PINS', 'DOCU', 'SNOW', 'NET', 'CRWD',
+                'OKTA', 'SHOP', 'SQ', 'UBER', 'LYFT', 'ABNB', 'SPOT', 'RBLX'
+            ]
+            print(f"使用備用列表: {len(major_tickers)} 支主要股票")
+            return major_tickers
+            
+    except Exception as e:
+        print(f"獲取股票列表錯誤: {e}")
+        return []
+
 def ensure_data_dir():
     """確保數據目錄存在"""
     os.makedirs(DATA_DIR, exist_ok=True)
