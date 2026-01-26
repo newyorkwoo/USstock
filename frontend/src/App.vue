@@ -159,7 +159,7 @@
 import { ref, onMounted, watch } from 'vue'
 import KLineChart from './components/KLineChart.vue'
 import CorrelationTable from './components/CorrelationTable.vue'
-import { fetchIndexData, fetchCorrelationData } from './utils/api'
+import { fetchIndexData, fetchCorrelationData, analyzeCorrelationFromLocal } from './utils/api'
 
 export default {
   name: 'App',
@@ -240,18 +240,40 @@ export default {
     const analyzeCorrelation = async () => {
       loading.value = true
       try {
-        // 重新載入相關性資料
-        const corrData = await fetchCorrelationData(selectedIndex.value)
-        
-        // 過濾出相關性大於 0.9 的股票
-        if (corrData && corrData.correlations) {
+        // 如果是 NASDAQ (^IXIC)，使用本地數據分析
+        if (selectedIndex.value === '^IXIC') {
+          console.log('使用本地數據分析 NASDAQ 相關性...')
+          const result = await analyzeCorrelationFromLocal(
+            selectedIndex.value,
+            0.8,  // 相關性閾值 > 0.8
+            startDate.value,
+            endDate.value
+          )
+          
+          // 轉換為前端需要的格式
           correlationData.value = {
-            ...corrData,
-            correlations: corrData.correlations.filter(stock => stock.correlation > 0.9)
+            correlations: result.correlations || [],
+            total_analyzed: result.total_analyzed,
+            high_correlation_count: result.high_correlation_count,
+            threshold: result.threshold
+          }
+          
+          console.log(`✓ 分析完成：共分析 ${result.total_analyzed} 支股票，找到 ${result.high_correlation_count} 支高相關性股票`)
+        } else {
+          // 其他指數使用原有的 API
+          const corrData = await fetchCorrelationData(selectedIndex.value)
+          
+          // 過濾出相關性大於 0.8 的股票
+          if (corrData && corrData.correlations) {
+            correlationData.value = {
+              ...corrData,
+              correlations: corrData.correlations.filter(stock => stock.correlation > 0.8)
+            }
           }
         }
       } catch (error) {
         console.error('分析相關性失敗:', error)
+        alert('分析失敗：' + error.message)
       } finally {
         loading.value = false
       }

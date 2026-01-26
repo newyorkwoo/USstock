@@ -40,3 +40,18 @@ export const fetchAllIndices = async () => {
     throw error
   }
 }
+
+export const analyzeCorrelationFromLocal = async (indexSymbol, threshold = 0.8, startDate = '2010-01-01', endDate = null) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/storage/correlation-analysis`, {
+      index_symbol: indexSymbol,
+      threshold: threshold,
+      start_date: startDate,
+      end_date: endDate
+    })
+    return response.data
+  } catch (error) {
+    console.error('本地數據相關性分析失敗:', error)
+    throw error
+  }
+}

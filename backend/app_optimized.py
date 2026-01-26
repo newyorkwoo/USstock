@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import io
 import time
+import os
 from typing import List, Dict, Optional, Tuple
 
 import data_storage  # 導入本地數據存儲模組
@@ -823,6 +824,145 @@ def load_stock_data_from_local(symbol):
         return jsonify(data)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/storage/correlation-analysis', methods=['POST'])
+def analyze_correlation_from_local():
+    """使用本地存儲數據分析相關性（只保留相關性 > 0.8 的股票）"""
+    try:
+        # 獲取請求參數
+        index_symbol = request.json.get('index_symbol', '^IXIC')
+        threshold = request.json.get('threshold', 0.8)
+        start_date = request.json.get('start_date', '2010-01-01')
+        end_date = request.json.get('end_date', None)
+        
+        print(f"\n{'='*50}")
+        print(f"本地數據相關性分析")
+        print(f"指數: {INDICES.get(index_symbol, {}).get('name', index_symbol)}")
+        print(f"相關性閾值: > {threshold}")
+        print(f"{'='*50}\n")
+        
+        # 1. 下載指數數據
+        print(f"正在下載指數數據 {index_symbol}...")
+        index_data = download_stock_data(index_symbol, start_date, end_date)
+        if index_data is None or len(index_data) == 0:
+            return jsonify({'error': '無法獲取指數數據'}), 500
+        
+        # 轉換指數數據為日期-收盤價字典
+        index_close_dict = {item['date']: item['close'] for item in index_data}
+        index_dates = sorted(index_close_dict.keys())
+        
+        print(f"✓ 指數數據: {len(index_dates)} 個交易日\n")
+        
+        # 2. 獲取本地存儲的所有股票
+        print("正在掃描本地存儲的股票...")
+        stocks_dir = '/app/data/stocks'
+        if not os.path.exists(stocks_dir):
+            return jsonify({'error': '本地數據目錄不存在'}), 404
+        
+        stock_files = [f for f in os.listdir(stocks_dir) if f.endswith('.json.gz')]
+        print(f"✓ 找到 {len(stock_files)} 支股票\n")
+        
+        if len(stock_files) == 0:
+            return jsonify({
+                'message': '本地存儲為空，請先執行初始化下載',
+                'correlations': [],
+                'total_analyzed': 0,
+                'high_correlation_count': 0
+            })
+        
+        # 3. 並行計算相關性
+        print("開始並行計算相關性...")
+        results = []
+        analyzed_count = 0
+        
+        def analyze_stock(stock_file):
+            nonlocal analyzed_count
+            symbol = stock_file.replace('.json.gz', '')
+            
+            try:
+                # 從本地加載股票數據
+                stock_data = data_storage.load_stock_data(symbol)
+                if not stock_data or 'dates' not in stock_data or 'close_prices' not in stock_data:
+                    return None
+                
+                # 創建股票的日期-收盤價字典
+                stock_close_dict = {
+                    stock_data['dates'][i]: stock_data['close_prices'][i]
+                    for i in range(len(stock_data['dates']))
+                }
+                
+                # 找出共同的交易日
+                common_dates = sorted(set(index_dates) & set(stock_data['dates']))
+                
+                if len(common_dates) < 30:  # 至少需要30個交易日
+                    return None
+                
+                # 提取共同日期的收盤價
+                index_closes = [index_close_dict[date] for date in common_dates]
+                stock_closes = [stock_close_dict[date] for date in common_dates]
+                
+                # 計算相關性
+                correlation, p_value = pearsonr(index_closes, stock_closes)
+                
+                analyzed_count += 1
+                if analyzed_count % 100 == 0:
+                    print(f"已分析 {analyzed_count}/{len(stock_files)} 支股票...")
+                
+                # 只返回相關性大於閾值的股票
+                if correlation > threshold:
+                    # 獲取股票名稱
+                    try:
+                        ticker = yf.Ticker(symbol)
+                        name = ticker.info.get('longName', symbol)
+                    except:
+                        name = symbol
+                    
+                    return {
+                        'symbol': symbol,
+                        'name': name,
+                        'correlation': float(correlation),
+                        'data_points': len(common_dates)
+                    }
+                
+                return None
+                
+            except Exception as e:
+                print(f"分析 {symbol} 失敗: {e}")
+                return None
+        
+        # 使用線程池並行處理
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(analyze_stock, stock_file) for stock_file in stock_files]
+            
+            for future in as_completed(futures):
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+        
+        # 按相關性排序
+        results.sort(key=lambda x: x['correlation'], reverse=True)
+        
+        print(f"\n{'='*50}")
+        print(f"相關性分析完成！")
+        print(f"總分析股票數: {analyzed_count}")
+        print(f"高相關性股票數 (>{threshold}): {len(results)}")
+        print(f"{'='*50}\n")
+        
+        return jsonify({
+            'correlations': results,
+            'total_analyzed': analyzed_count,
+            'high_correlation_count': len(results),
+            'threshold': threshold,
+            'index_symbol': index_symbol,
+            'index_name': INDICES.get(index_symbol, {}).get('name', index_symbol)
+        })
+        
+    except Exception as e:
+        print(f"相關性分析錯誤: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 if __name__ == '__main__':
     print("=" * 50)
     print("美國股市分析系統 - 後端 API (優化版)")
