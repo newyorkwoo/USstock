@@ -18,13 +18,7 @@ export default defineConfig({
       }
     },
     // 啟用壓縮
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true, // 移除 console.log
-        drop_debugger: true
-      }
-    },
+    minify: 'esbuild',  // 使用 esbuild 壓縮（更快）
     // 優化 chunk 大小警告閾值
     chunkSizeWarningLimit: 1000,
     // 啟用 CSS 代碼分割
