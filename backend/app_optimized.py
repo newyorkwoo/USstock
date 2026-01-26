@@ -176,7 +176,7 @@ def download_stock_info(symbol):
     except:
         return symbol
 
-@app.route('/api/index/<symbol>', methods=['GET'])
+@app.route('/index/<symbol>', methods=['GET'])
 def get_index_data(symbol):
     """獲取指數歷史數據（支持自定義日期範圍）"""
     if symbol not in INDICES:
@@ -210,7 +210,7 @@ def get_index_data(symbol):
         }
     })
 
-@app.route('/api/correlation/<symbol>', methods=['GET'])
+@app.route('/correlation/<symbol>', methods=['GET'])
 @cache_result(ttl=CACHE_TTL_CORRELATION)
 def get_correlation_data(symbol):
     """獲取指數成分股與指數的相關性（優化版：並行下載）"""
@@ -295,7 +295,7 @@ def get_correlation_data(symbol):
     
     return results
 
-@app.route('/api/indices', methods=['GET'])
+@app.route('/indices', methods=['GET'])
 def get_all_indices():
     """獲取所有支持的指數"""
     return jsonify([
@@ -312,7 +312,7 @@ def health_check():
         'cache': 'enabled' if REDIS_AVAILABLE else 'disabled'
     })
 
-@app.route('/api/cache/clear', methods=['POST'])
+@app.route('/cache/clear', methods=['POST'])
 def clear_cache():
     """清除所有緩存"""
     if not REDIS_AVAILABLE:
