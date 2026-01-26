@@ -7,8 +7,10 @@
 <script>
 import { ref, onMounted, watch } from 'vue'
 import { Chart, registerables } from 'chart.js'
+import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial'
+import 'chartjs-adapter-luxon'
 
-Chart.register(...registerables)
+Chart.register(...registerables, CandlestickController, CandlestickElement)
 
 export default {
   name: 'KLineChart',
@@ -36,44 +38,35 @@ export default {
 
       const ctx = chartCanvas.value.getContext('2d')
       
-      // 準備數據
-      const labels = props.data.map(d => d.date)
-      const prices = props.data.map(d => d.close)
-      
-      // K線顏色 - 紅色上漲，綠色下跌
-      const colors = props.data.map(d => {
-        return d.close >= d.open ? '#ef4444' : '#22c55e'
-      })
+      // 準備蠟燭圖數據格式
+      const candlestickData = props.data.map(d => ({
+        x: d.date,
+        o: d.open,    // open
+        h: d.high,    // high
+        l: d.low,     // low
+        c: d.close    // close
+      }))
 
       chartInstance = new Chart(ctx, {
-        type: 'bar',
+        type: 'candlestick',
         data: {
-          labels: labels,
           datasets: [
             {
-              label: '收盤價',
-              data: prices,
-              backgroundColor: colors,
-              borderColor: colors,
+              label: 'K線圖',
+              data: candlestickData,
+              // 上漲蠟燭（收盤 >= 開盤）- 紅色
+              color: {
+                up: '#ef4444',      // 上漲邊框 - 紅色
+                down: '#22c55e',    // 下跌邊框 - 綠色
+                unchanged: '#999'    // 無變化 - 灰色
+              },
+              borderColor: {
+                up: '#ef4444',      // 上漲邊框 - 紅色  
+                down: '#22c55e',    // 下跌邊框 - 綠色
+                unchanged: '#999'
+              },
+              // 上漲蠟燭實心，下跌蠟燭空心
               borderWidth: 1
-            },
-            {
-              label: '最高價',
-              data: props.data.map(d => d.high),
-              type: 'line',
-              borderColor: '#94a3b8',
-              borderWidth: 1,
-              pointRadius: 0,
-              fill: false
-            },
-            {
-              label: '最低價',
-              data: props.data.map(d => d.low),
-              type: 'line',
-              borderColor: '#cbd5e1',
-              borderWidth: 1,
-              pointRadius: 0,
-              fill: false
             }
           ]
         },
@@ -82,19 +75,19 @@ export default {
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              display: true,
-              position: 'top'
+              display: false  // 不顯示圖例
             },
             tooltip: {
               callbacks: {
                 label: function(context) {
-                  const dataPoint = props.data[context.dataIndex]
+                  const data = context.raw
                   return [
-                    `開盤: ${dataPoint.open.toFixed(2)}`,
-                    `收盤: ${dataPoint.close.toFixed(2)}`,
-                    `最高: ${dataPoint.high.toFixed(2)}`,
-                    `最低: ${dataPoint.low.toFixed(2)}`,
-                    `成交量: ${(dataPoint.volume / 1000000).toFixed(2)}M`
+                    `日期: ${data.x}`,
+                    `開盤: ${data.o.toFixed(2)}`,
+                    `最高: ${data.h.toFixed(2)}`,
+                    `最低: ${data.l.toFixed(2)}`,
+                    `收盤: ${data.c.toFixed(2)}`,
+                    `漲跌: ${(data.c - data.o).toFixed(2)} (${((data.c - data.o) / data.o * 100).toFixed(2)}%)`
                   ]
                 }
               }
@@ -102,15 +95,24 @@ export default {
           },
           scales: {
             x: {
-              display: true,
+              type: 'time',
+              time: {
+                unit: 'day',
+                displayFormats: {
+                  day: 'yyyy-MM-dd'
+                }
+              },
               ticks: {
                 maxRotation: 45,
-                minRotation: 45
+                minRotation: 45,
+                autoSkip: true,
+                maxTicksLimit: 20
               }
             },
             y: {
               display: true,
-              beginAtZero: false
+              beginAtZero: false,
+              position: 'right'
             }
           }
         }
