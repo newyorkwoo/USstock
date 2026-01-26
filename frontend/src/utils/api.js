@@ -1,6 +1,8 @@
 import axios from 'axios'
 
-const API_BASE_URL = 'http://localhost:8000'
+// 在 Docker 環境中，Nginx 會將 /api 代理到後端
+// 在開發環境中，直接連接到 localhost:8000
+const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
 
 export const fetchIndexData = async (symbol) => {
   try {
