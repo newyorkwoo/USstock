@@ -12,6 +12,8 @@ from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
 import io
+import time
+from typing import List, Dict, Optional, Tuple
 
 app = Flask(__name__)
 CORS(app)
@@ -347,35 +349,90 @@ def get_nasdaq_tickers():
         return []
 
 @cache_result(ttl=CACHE_TTL_STOCK_DATA)
-def download_stock_close_only(symbol, start_date='2020-01-01', end_date=None):
-    """下載單支股票的收盤價（僅用於相關性計算）"""
-    try:
-        if end_date is None:
-            end_date = datetime.now().strftime('%Y-%m-%d')
-        
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(start=start_date, end=end_date)
-        
-        if hist.empty or len(hist) < 100:  # 至少需要 100 個交易日
-            return None
-        
-        # 只返回日期和收盤價
-        return {
-            'symbol': symbol,
-            'dates': hist.index.strftime('%Y-%m-%d').tolist(),
-            'close': hist['Close'].astype(float).tolist()
-        }
-    except Exception as e:
-        print(f"下載 {symbol} 失敗: {e}")
-        return None
-
-def calculate_correlation_batch(index_data, stock_symbols, start_date='2020-01-01', end_date=None, max_workers=20):
-    """批次計算相關性"""
-    print(f"\n開始批次下載 {len(stock_symbols)} 支股票...")
+def download_stock_close_only(symbol, start_date='2020-01-01', end_date=None, retry_count=3):
+    """下載單支股票的收盤價（僅用於相關性計算，帶重試機制）"""
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y-%m-%d')
     
-    results = []
-    successful = 0
-    failed = 0
+    for attempt in range(retry_count):
+        try:
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(start=start_date, end=end_date)
+            
+            if hist.empty or len(hist) < 100:  # 至少需要 100 個交易日
+                return None
+            
+            # 只返回日期和收盤價
+            return {
+                'symbol': symbol,
+                'dates': hist.index.strftime('%Y-%m-%d').tolist(),
+                'close': hist['Close'].astype(float).tolist()
+            }
+        except Exception as e:
+            if attempt < retry_count - 1:
+                # 等待後重試（指數退避）
+                time.sleep(0.5 * (2 ** attempt))
+                continue
+            else:
+                # 最後一次嘗試失敗
+                return None
+    
+    return None
+
+def download_batch_with_rate_limit(symbols: List[str], start_date: str, end_date: Optional[str], 
+                                   max_workers: int = 15, batch_size: int = 100) -> Dict[str, dict]:
+    """分批下載股票數據，帶速率限制"""
+    results = {}
+    total = len(symbols)
+    processed = 0
+    
+    # 將股票列表分成小批次
+    for batch_start in range(0, total, batch_size):
+        batch_end = min(batch_start + batch_size, total)
+        batch_symbols = symbols[batch_start:batch_end]
+        
+        print(f"\n處理批次 {batch_start}-{batch_end} / {total}...")
+        
+        # 並行下載這批股票
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_symbol = {
+                executor.submit(download_stock_close_only, symbol, start_date, end_date): symbol
+                for symbol in batch_symbols
+            }
+            
+            for future in as_completed(future_to_symbol):
+                symbol = future_to_symbol[future]
+                try:
+                    data = future.result(timeout=30)  # 30秒超時
+                    if data:
+                        results[symbol] = data
+                    processed += 1
+                    
+                    if processed % 50 == 0:
+                        print(f"已處理: {processed}/{total} ({processed/total*100:.1f}%)")
+                        
+                except Exception as e:
+                    print(f"處理 {symbol} 失敗: {e}")
+                    processed += 1
+        
+        # 批次間短暫延遲，避免速率限制
+        if batch_end < total:
+            time.sleep(1)
+    
+    return results
+
+def calculate_correlation_batch_optimized(index_data: dict, stock_symbols: List[str], 
+                                         start_date: str = '2020-01-01', 
+                                         end_date: Optional[str] = None,
+                                         max_workers: int = 15,
+                                         batch_size: int = 100) -> List[Dict]:
+    """優化的批次相關性計算"""
+    print(f"\n{'='*60}")
+    print(f"開始分批下載和計算 {len(stock_symbols)} 支股票的相關性")
+    print(f"參數: 批次大小={batch_size}, 最大工作線程={max_workers}")
+    print(f"{'='*60}")
+    
+    start_time = time.time()
     
     # 準備指數數據
     index_df = pd.DataFrame({
@@ -385,67 +442,74 @@ def calculate_correlation_batch(index_data, stock_symbols, start_date='2020-01-0
     index_df['date'] = pd.to_datetime(index_df['date'])
     index_df = index_df.set_index('date')
     
-    # 並行下載股票數據
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_symbol = {
-            executor.submit(download_stock_close_only, symbol, start_date, end_date): symbol
-            for symbol in stock_symbols
-        }
-        
-        for future in as_completed(future_to_symbol):
-            symbol = future_to_symbol[future]
-            try:
-                stock_data = future.result()
-                
-                if stock_data is None:
-                    failed += 1
-                    continue
-                
-                # 創建 DataFrame 並對齊日期
-                stock_df = pd.DataFrame({
-                    'date': stock_data['dates'],
-                    'close': stock_data['close']
-                })
-                stock_df['date'] = pd.to_datetime(stock_df['date'])
-                stock_df = stock_df.set_index('date')
-                
-                # 合併數據
-                merged = index_df.join(stock_df, how='inner', rsuffix='_stock')
-                
-                if len(merged) < 50:  # 至少需要 50 個共同交易日
-                    failed += 1
-                    continue
-                
-                # 計算相關係數
-                correlation, p_value = pearsonr(
-                    merged['close'].values,
-                    merged['close_stock'].values
-                )
-                
-                # 獲取股票名稱
-                try:
-                    ticker_info = yf.Ticker(symbol)
-                    name = ticker_info.info.get('longName', symbol)
-                except:
-                    name = symbol
-                
-                results.append({
-                    'symbol': symbol,
-                    'name': name,
-                    'correlation': float(correlation),
-                    'p_value': float(p_value),
-                    'data_points': len(merged)
-                })
-                
-                successful += 1
-                
-                if successful % 50 == 0:
-                    print(f"進度: {successful}/{len(stock_symbols)} 成功, {failed} 失敗")
-                
-            except Exception as e:
-                failed += 1
+    # 第一步：分批下載所有股票數據
+    print("\n階段 1: 下載股票數據")
+    stock_data_dict = download_batch_with_rate_limit(
+        stock_symbols, start_date, end_date, max_workers, batch_size
+    )
     
-    print(f"\n完成! 成功: {successful}, 失敗: {failed}")
+    download_time = time.time() - start_time
+    print(f"\n下載完成: {len(stock_data_dict)}/{len(stock_symbols)} 支股票 (耗時 {download_time:.1f}秒)")
+    
+    # 第二步：計算相關性
+    print("\n階段 2: 計算相關性")
+    results = []
+    successful = 0
+    failed = 0
+    
+    for symbol, stock_data in stock_data_dict.items():
+        try:
+            # 創建 DataFrame 並對齊日期
+            stock_df = pd.DataFrame({
+                'date': stock_data['dates'],
+                'close': stock_data['close']
+            })
+            stock_df['date'] = pd.to_datetime(stock_df['date'])
+            stock_df = stock_df.set_index('date')
+            
+            # 合併數據
+            merged = index_df.join(stock_df, how='inner', rsuffix='_stock')
+            
+            if len(merged) < 50:  # 至少需要 50 個共同交易日
+                failed += 1
+                continue
+            
+            # 計算相關係數
+            correlation, p_value = pearsonr(
+                merged['close'].values,
+                merged['close_stock'].values
+            )
+            
+            # 獲取股票名稱（使用緩存數據）
+            try:
+                ticker_info = yf.Ticker(symbol)
+                name = ticker_info.info.get('longName', symbol)
+            except:
+                name = symbol
+            
+            results.append({
+                'symbol': symbol,
+                'name': name,
+                'correlation': float(correlation),
+                'p_value': float(p_value),
+                'data_points': len(merged)
+            })
+            
+            successful += 1
+            
+            if successful % 100 == 0:
+                print(f"相關性計算進度: {successful}/{len(stock_data_dict)}")
+            
+        except Exception as e:
+            print(f"計算 {symbol} 相關性失敗: {e}")
+            failed += 1
+    
+    total_time = time.time() - start_time
+    print(f"\n{'='*60}")
+    print(f"完成! 成功: {successful}, 失敗: {failed}")
+    print(f"總耗時: {total_time:.1f}秒 (下載: {download_time:.1f}秒, 計算: {total_time-download_time:.1f}秒)")
+    print(f"平均速度: {len(stock_symbols)/total_time:.1f} 股票/秒")
+    print(f"{'='*60}\n")
     
     # 按相關係數絕對值排序
     results.sort(key=lambda x: abs(x['correlation']), reverse=True)
@@ -483,8 +547,8 @@ def get_all_nasdaq_correlation():
         
         print(f"共有 {len(tickers)} 支股票需要分析")
         
-        # 計算相關性（使用緩存）
-        cache_key = f"all_correlation:{start_date}:{end_date}:{len(tickers)}"
+        # 計算相關性（使用優化的批次處理和緩存）
+        cache_key = f"all_correlation_v2:{start_date}:{end_date}:{len(tickers)}"
         
         if REDIS_AVAILABLE:
             try:
@@ -493,15 +557,26 @@ def get_all_nasdaq_correlation():
                     print("✓ 使用緩存的相關性結果")
                     results = json.loads(gzip.decompress(cached))
                 else:
-                    results = calculate_correlation_batch(index_data, tickers, start_date, end_date)
+                    # 使用優化的批次處理
+                    results = calculate_correlation_batch_optimized(
+                        index_data, tickers, start_date, end_date,
+                        max_workers=15,  # 降低並發數以提高穩定性
+                        batch_size=100   # 每批100支股票
+                    )
                     # 緩存結果
                     compressed = gzip.compress(json.dumps(results).encode())
                     redis_client.setex(cache_key, CACHE_TTL_FULL_CORRELATION, compressed)
             except Exception as e:
                 print(f"緩存操作失敗: {e}")
-                results = calculate_correlation_batch(index_data, tickers, start_date, end_date)
+                results = calculate_correlation_batch_optimized(
+                    index_data, tickers, start_date, end_date,
+                    max_workers=15, batch_size=100
+                )
         else:
-            results = calculate_correlation_batch(index_data, tickers, start_date, end_date)
+            results = calculate_correlation_batch_optimized(
+                index_data, tickers, start_date, end_date,
+                max_workers=15, batch_size=100
+            )
         
         # 過濾結果
         filtered_results = [
