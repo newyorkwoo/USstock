@@ -4,9 +4,13 @@ import axios from 'axios'
 // 在開發環境中，直接連接到 localhost:8000
 const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
 
-export const fetchIndexData = async (symbol) => {
+export const fetchIndexData = async (symbol, startDate = '2010-01-01', endDate = null) => {
   try {
-    const response = await axios.get(`${API_BASE_URL}/api/index/${symbol}`)
+    const params = { start_date: startDate }
+    if (endDate) {
+      params.end_date = endDate
+    }
+    const response = await axios.get(`${API_BASE_URL}/api/index/${symbol}`, { params })
     return response.data
   } catch (error) {
     console.error('獲取指數數據失敗:', error)

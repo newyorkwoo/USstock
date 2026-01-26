@@ -104,15 +104,20 @@ def calculate_correlation(index_data, stock_data):
 
 @app.route('/api/index/<symbol>', methods=['GET'])
 def get_index_data(symbol):
-    """獲取指數歷史數據（2010-至今）"""
+    """獲取指數歷史數據（支持自定義日期範圍）"""
     if symbol not in INDICES:
         return jsonify({'error': '無效的指數代碼'}), 400
     
+    # 從查詢參數獲取日期範圍
+    start_date = request.args.get('start_date', '2010-01-01')
+    end_date = request.args.get('end_date', None)
+    
     print(f"\n{'='*50}")
     print(f"API 請求: 獲取 {INDICES[symbol]['name']} 歷史數據")
+    print(f"日期範圍: {start_date} 至 {end_date or '今天'}")
     print(f"{'='*50}")
     
-    data = download_stock_data(symbol)
+    data = download_stock_data(symbol, start_date=start_date, end_date=end_date)
     
     if data is None or len(data) == 0:
         return jsonify({'error': '無法獲取數據'}), 500

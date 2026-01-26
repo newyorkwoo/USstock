@@ -38,13 +38,53 @@
       <!-- K-Line Chart -->
       <div v-else class="bg-white rounded-lg shadow-md p-6">
         <div class="mb-6">
-          <h2 class="text-2xl font-bold text-gray-800">
-            {{ getCurrentIndexName() }} K線圖
-          </h2>
-          <p class="text-sm text-gray-500 mt-1">紅色：收盤上漲 | 綠色：收盤下跌</p>
-          <p v-if="dataRange" class="text-xs text-blue-600 mt-1">
-            📊 數據範圍: {{ dataRange.start }} 至 {{ dataRange.end }} (共 {{ dataRange.count.toLocaleString() }} 筆)
-          </p>
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="text-2xl font-bold text-gray-800">
+                {{ getCurrentIndexName() }} K線圖
+              </h2>
+              <p class="text-sm text-gray-500 mt-1">紅色：收盤上漲 | 綠色：收盤下跌</p>
+              <p v-if="dataRange" class="text-xs text-blue-600 mt-1">
+                📊 數據範圍: {{ dataRange.start }} 至 {{ dataRange.end }} (共 {{ dataRange.count.toLocaleString() }} 筆)
+              </p>
+            </div>
+            
+            <!-- 日期選擇器 -->
+            <div class="flex items-center space-x-3">
+              <div class="flex flex-col">
+                <label class="text-xs text-gray-600 mb-1">起始日期</label>
+                <input
+                  type="date"
+                  v-model="startDate"
+                  :max="endDate"
+                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div class="flex flex-col">
+                <label class="text-xs text-gray-600 mb-1">結束日期</label>
+                <input
+                  type="date"
+                  v-model="endDate"
+                  :min="startDate"
+                  :max="today"
+                  class="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <button
+                @click="applyDateFilter"
+                class="mt-5 px-6 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 transition-colors font-semibold"
+              >
+                套用
+              </button>
+              <button
+                @click="resetDateFilter"
+                class="mt-5 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
+                title="重置為全部資料"
+              >
+                重置
+              </button>
+            </div>
+          </div>
         </div>
         
         <KLineChart
@@ -119,6 +159,11 @@ export default {
     const priceChange = ref(0)
     const volume = ref('--')
     const dataRange = ref(null)
+    
+    // 日期選擇器
+    const today = new Date().toISOString().split('T')[0]
+    const startDate = ref('2010-01-01')
+    const endDate = ref(today)
 
     const loadData = async () => {
       loading.value = true
@@ -132,7 +177,7 @@ export default {
       dataRange.value = null
       
       try {
-        const data = await fetchIndexData(selectedIndex.value)
+        const data = await fetchIndexData(selectedIndex.value, startDate.value, endDate.value)
         chartData.value = data.history
         
         // 保存數據範圍信息
@@ -162,6 +207,16 @@ export default {
       const index = indices.find(i => i.symbol === selectedIndex.value)
       return index ? index.name : ''
     }
+    
+    const applyDateFilter = () => {
+      loadData()
+    }
+    
+    const resetDateFilter = () => {
+      startDate.value = '2010-01-01'
+      endDate.value = today
+      loadData()
+    }
 
     onMounted(() => {
       loadData()
@@ -181,7 +236,12 @@ export default {
       priceChange,
       volume,
       dataRange,
-      getCurrentIndexName
+      startDate,
+      endDate,
+      today,
+      getCurrentIndexName,
+      applyDateFilter,
+      resetDateFilter
     }
   }
 }
