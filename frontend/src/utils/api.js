@@ -4,6 +4,9 @@ import axios from 'axios'
 // 在開發環境中，直接連接到 localhost:8000
 const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
 
+// 配置 axios 全局超時時間為10分鐘，支持大量數據下載
+axios.defaults.timeout = 600000 // 600秒 = 10分鐘
+
 export const fetchIndexData = async (symbol, startDate = '2010-01-01', endDate = null) => {
   try {
     const params = { start_date: startDate }
