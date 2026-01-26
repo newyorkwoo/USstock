@@ -23,17 +23,6 @@
           >
             三大指數分析
           </button>
-          <button
-            @click="currentView = 'nasdaq-full'"
-            :class="[
-              'px-6 py-4 font-semibold transition-colors',
-              currentView === 'nasdaq-full'
-                ? 'border-b-2 border-blue-500 text-blue-600'
-                : 'text-gray-600 hover:text-blue-500'
-            ]"
-          >
-            那斯達克全部股票相關性
-          </button>
         </div>
       </div>
     </div>
@@ -109,11 +98,12 @@
                   套用
                 </button>
                 <button
-                  @click="resetDateFilter"
-                  class="mt-5 px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 transition-colors"
-                  title="重置為全部資料"
+                  @click="analyzeCorrelation"
+                  class="mt-5 px-6 py-2 bg-green-500 text-white rounded-md hover:bg-green-600 transition-colors font-semibold"
+                  title="分析相關性並過濾高於0.9的股票"
+                  :disabled="loading"
                 >
-                  重置
+                  {{ loading ? '分析中...' : '分析' }}
                 </button>
               </div>
             </div>
@@ -161,9 +151,6 @@
           </div>
         </div>
       </div>
-      
-      <!-- 那斯達克全部股票相關性分析視圖 -->
-      <NasdaqFullAnalysis v-else-if="currentView === 'nasdaq-full'" />
     </main>
   </div>
 </template>
@@ -172,15 +159,13 @@
 import { ref, onMounted, watch } from 'vue'
 import KLineChart from './components/KLineChart.vue'
 import CorrelationTable from './components/CorrelationTable.vue'
-import NasdaqFullAnalysis from './views/NasdaqFullAnalysis.vue'
 import { fetchIndexData, fetchCorrelationData } from './utils/api'
 
 export default {
   name: 'App',
   components: {
     KLineChart,
-    CorrelationTable,
-    NasdaqFullAnalysis
+    CorrelationTable
   },
   setup() {
     const currentView = ref('indices')  // 'indices' or 'nasdaq-full'
@@ -252,10 +237,24 @@ export default {
       loadData()
     }
     
-    const resetDateFilter = () => {
-      startDate.value = '2010-01-01'
-      endDate.value = today
-      loadData()
+    const analyzeCorrelation = async () => {
+      loading.value = true
+      try {
+        // 重新載入相關性資料
+        const corrData = await fetchCorrelationData(selectedIndex.value)
+        
+        // 過濾出相關性大於 0.9 的股票
+        if (corrData && corrData.correlations) {
+          correlationData.value = {
+            ...corrData,
+            correlations: corrData.correlations.filter(stock => stock.correlation > 0.9)
+          }
+        }
+      } catch (error) {
+        console.error('分析相關性失敗:', error)
+      } finally {
+        loading.value = false
+      }
     }
 
     onMounted(() => {
@@ -282,7 +281,7 @@ export default {
       today,
       getCurrentIndexName,
       applyDateFilter,
-      resetDateFilter
+      analyzeCorrelation
     }
   }
 }
