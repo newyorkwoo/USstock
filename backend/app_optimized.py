@@ -838,20 +838,25 @@ def analyze_correlation_from_local():
         print(f"\n{'='*50}")
         print(f"本地數據相關性分析")
         print(f"指數: {INDICES.get(index_symbol, {}).get('name', index_symbol)}")
+        print(f"日期區間: {start_date} 至 {end_date or '今日'}")
         print(f"相關性閾值: > {threshold}")
         print(f"{'='*50}\n")
         
-        # 1. 下載指數數據
+        # 1. 下載指數數據（使用指定的日期區間）
         print(f"正在下載指數數據 {index_symbol}...")
         index_data = download_stock_data(index_symbol, start_date, end_date)
         if index_data is None or len(index_data) == 0:
             return jsonify({'error': '無法獲取指數數據'}), 500
         
-        # 轉換指數數據為日期-收盤價字典
+        # 轉換指數數據為日期-收盤價字典（只保留指定區間內的數據）
         index_close_dict = {item['date']: item['close'] for item in index_data}
         index_dates = sorted(index_close_dict.keys())
         
-        print(f"✓ 指數數據: {len(index_dates)} 個交易日\n")
+        # 確保日期在指定區間內
+        index_dates_set = set(index_dates)
+        
+        print(f"✓ 指數數據: {len(index_dates)} 個交易日")
+        print(f"  日期範圍: {index_dates[0]} 至 {index_dates[-1]}\n")
         
         # 2. 獲取本地存儲的所有股票
         print("正在掃描本地存儲的股票...")
@@ -885,14 +890,16 @@ def analyze_correlation_from_local():
                 if not stock_data or 'dates' not in stock_data or 'close_prices' not in stock_data:
                     return None
                 
-                # 創建股票的日期-收盤價字典
-                stock_close_dict = {
-                    stock_data['dates'][i]: stock_data['close_prices'][i]
-                    for i in range(len(stock_data['dates']))
-                }
+                # 創建股票的日期-收盤價字典，並過濾到指定日期區間
+                stock_close_dict = {}
+                for i in range(len(stock_data['dates'])):
+                    date = stock_data['dates'][i]
+                    # 只保留在指定日期區間內的數據
+                    if date >= start_date and (end_date is None or date <= end_date):
+                        stock_close_dict[date] = stock_data['close_prices'][i]
                 
-                # 找出共同的交易日
-                common_dates = sorted(set(index_dates) & set(stock_data['dates']))
+                # 找出與指數共同的交易日（已經在指定區間內）
+                common_dates = sorted(index_dates_set & set(stock_close_dict.keys()))
                 
                 if len(common_dates) < 30:  # 至少需要30個交易日
                     return None
@@ -944,6 +951,7 @@ def analyze_correlation_from_local():
         
         print(f"\n{'='*50}")
         print(f"相關性分析完成！")
+        print(f"日期區間: {start_date} 至 {end_date or '今日'}")
         print(f"總分析股票數: {analyzed_count}")
         print(f"高相關性股票數 (>{threshold}): {len(results)}")
         print(f"{'='*50}\n")
@@ -954,7 +962,14 @@ def analyze_correlation_from_local():
             'high_correlation_count': len(results),
             'threshold': threshold,
             'index_symbol': index_symbol,
-            'index_name': INDICES.get(index_symbol, {}).get('name', index_symbol)
+            'index_name': INDICES.get(index_symbol, {}).get('name', index_symbol),
+            'start_date': start_date,
+            'end_date': end_date or datetime.now().strftime('%Y-%m-%d'),
+            'date_range': {
+                'start': index_dates[0] if index_dates else start_date,
+                'end': index_dates[-1] if index_dates else end_date,
+                'trading_days': len(index_dates)
+            }
         })
         
     except Exception as e:
