@@ -198,7 +198,7 @@ export default {
       priceChange.value = 0
       volume.value = '--'
       chartData.value = null
-      correlationData.value = null
+      correlationData.value = null  // 清空相關性數據
       dataRange.value = null
       
       try {
@@ -219,8 +219,8 @@ export default {
           volume.value = (latest.volume / 1000000).toFixed(2) + 'M'
         }
 
-        const corrData = await fetchCorrelationData(selectedIndex.value)
-        correlationData.value = corrData
+        // 不再自動載入相關性數據，需要點擊"分析"按鈕
+        
       } catch (error) {
         console.error('載入數據失敗:', error)
       } finally {
