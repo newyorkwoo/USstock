@@ -20,6 +20,13 @@ backend/htmlcov/
 backend/.coverage
 backend/*.log
 
+# 數據文件（太大不要提交）
+backend/data/stocks/*.json.gz
+backend/data/nasdaq_stocks/*.json.gz
+backend/data/dow_jones_stocks/*.json.gz
+backend/data/sp500_stocks/*.json.gz
+backend/data/*.json
+
 # IDE
 .vscode/
 .idea/
@@ -36,3 +43,16 @@ backend/*.log
 # 日誌
 *.log
 logs/
+
+# Docker
+.dockerignore
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# 臨時文件
+*.tmp
+*.temp
+*.bak

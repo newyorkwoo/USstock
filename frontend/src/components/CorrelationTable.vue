@@ -18,8 +18,22 @@
         </tr>
       </thead>
       <tbody class="bg-white divide-y divide-gray-200">
-        <tr v-for="stock in data" :key="stock.symbol" class="hover:bg-gray-50">
-          <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+        <tr v-if="data.length === 0">
+          <td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">
+            沒有找到符合條件的股票
+          </td>
+        </tr>
+        <tr 
+          v-for="stock in data" 
+          :key="stock.symbol" 
+          class="hover:bg-gray-50"
+          :class="{ 'bg-blue-50': selectedStock === stock.symbol }"
+        >
+          <td 
+            class="px-6 py-4 whitespace-nowrap text-sm font-medium cursor-pointer"
+            :class="selectedStock === stock.symbol ? 'text-blue-600' : 'text-blue-500 hover:text-blue-700'"
+            @click="emit('select-stock', stock)"
+          >
             {{ stock.symbol }}
           </td>
           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
@@ -53,9 +67,14 @@ export default {
     indexName: {
       type: String,
       required: true
+    },
+    selectedStock: {
+      type: String,
+      default: null
     }
   },
-  setup() {
+  emits: ['select-stock'],
+  setup(props, { emit }) {
     const getCorrelationLevel = (corr) => {
       const absCorr = Math.abs(corr)
       if (absCorr >= 0.8) return '高度相關'
@@ -73,6 +92,7 @@ export default {
     }
 
     return {
+      emit,
       getCorrelationLevel,
       getCorrelationBadgeClass
     }

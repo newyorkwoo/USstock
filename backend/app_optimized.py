@@ -20,6 +20,62 @@ import data_storage  # 導入本地數據存儲模組
 app = Flask(__name__)
 CORS(app)
 
+# 數據更新標誌（確保只更新一次）
+DATA_UPDATE_DONE = False
+DATA_UPDATE_LOCK = threading.Lock()
+
+def ensure_data_updated():
+    """確保數據已更新到最新（線程安全，只執行一次）"""
+    global DATA_UPDATE_DONE
+    
+    with DATA_UPDATE_LOCK:
+        if DATA_UPDATE_DONE:
+            return
+        
+        try:
+            print("\n" + "=" * 60)
+            print("🔄 正在檢查並更新數據到最新...")
+            print("=" * 60)
+            
+            # 獲取所有那斯達克股票代碼
+            nasdaq_tickers = data_storage.get_nasdaq_tickers()
+            
+            # 獲取統計資訊
+            stats = data_storage.get_storage_stats()
+            
+            if stats.get('total_stocks', 0) > 0:
+                print(f"📊 本地已有 {stats['total_stocks']} 支股票數據")
+                print("⏩ 執行增量更新，只下載最新數據...")
+                
+                # 執行增量更新
+                result = data_storage.bulk_update_incremental(
+                    symbols=nasdaq_tickers,
+                    end_date=None  # None 表示更新到今天
+                )
+                
+                updated = result.get('updated', 0)
+                skipped = result.get('skipped', 0)
+                print(f"✅ 更新完成！更新了 {updated} 支股票，跳過 {skipped} 支")
+            else:
+                print("📥 本地無數據，將下載所有歷史數據...")
+                print("⏳ 這可能需要幾分鐘，請稍候...")
+                
+                # 執行完整下載
+                result = data_storage.bulk_download_to_local(
+                    symbols=nasdaq_tickers
+                )
+                
+                print(f"✅ 下載完成！共 {result.get('successful', 0)} 支股票")
+            
+            DATA_UPDATE_DONE = True
+            print("=" * 60 + "\n")
+            
+        except Exception as e:
+            print(f"⚠️  數據更新警告: {str(e)}")
+            print("🔧 API 將使用現有數據繼續運行")
+            print("=" * 60 + "\n")
+            DATA_UPDATE_DONE = True  # 即使失敗也標記為完成，避免重複嘗試
+
 # Redis 配置
 try:
     redis_client = redis.Redis(
@@ -50,6 +106,13 @@ INDICES = {
         'name': 'S&P 500',
         'constituents': ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'NVDA', 'META', 'BRK-B', 'TSLA', 'V', 'UNH']
     }
+}
+
+# 指數對應的股票數據目錄
+INDEX_DATA_DIRS = {
+    '^IXIC': '/app/data/stocks',          # NASDAQ 股票數據目錄
+    '^DJI': '/app/data/dow_jones_stocks', # 道瓊工業指數股票數據目錄
+    '^GSPC': '/app/data/sp500_stocks'     # S&P 500 股票數據目錄
 }
 
 # 緩存時間設置（秒）
@@ -182,9 +245,15 @@ def download_stock_info(symbol):
     except:
         return symbol
 
+# 在第一個請求前確保數據已更新
+@app.before_request
+def before_first_request():
+    """在第一個請求前執行數據更新"""
+    ensure_data_updated()
+
 @app.route('/index/<symbol>', methods=['GET'])
 def get_index_data(symbol):
-    """獲取指數歷史數據（支持自定義日期範圍）"""
+    """獲取指數歷史數據（支持自定義日期範圍，優先從本地讀取）"""
     if symbol not in INDICES:
         return jsonify({'error': '無效的指數代碼'}), 400
     
@@ -197,6 +266,71 @@ def get_index_data(symbol):
     print(f"日期範圍: {start_date} 至 {end_date or '今天'}")
     print(f"{'='*50}")
     
+    # 優先從本地檔案讀取
+    print(f"嘗試從本地檔案讀取 {symbol} ...")
+    local_data = data_storage.load_stock_data(symbol)
+    print(f"本地檔案讀取結果: {local_data is not None}")
+    
+    if local_data:
+        print(f"本地數據鍵: {list(local_data.keys())}")
+        print(f"dates 欄位: {local_data.get('dates') is not None}, {len(local_data.get('dates', [])) if local_data.get('dates') else 0} 筆")
+        print(f"close 欄位: {local_data.get('close') is not None}, {len(local_data.get('close', [])) if local_data.get('close') else 0} 筆")
+    
+    if local_data and local_data.get('dates') and local_data.get('close'):
+        # 根據日期範圍過濾數據
+        dates = local_data['dates']
+        close_prices = local_data['close']
+        
+        # 找到日期範圍內的索引
+        start_idx = 0
+        end_idx = len(dates)
+        
+        for i, date in enumerate(dates):
+            if date >= start_date:
+                start_idx = i
+                break
+        
+        if end_date:
+            for i in range(len(dates) - 1, -1, -1):
+                if dates[i] <= end_date:
+                    end_idx = i + 1
+                    break
+        
+        # 過濾後的數據
+        filtered_dates = dates[start_idx:end_idx]
+        filtered_closes = close_prices[start_idx:end_idx]
+        
+        if filtered_dates:
+            # 轉換為 API 格式
+            data = [
+                {
+                    'date': filtered_dates[i],
+                    'close': filtered_closes[i],
+                    # 這些欄位在本地數據中可能不存在，使用 close 作為替代
+                    'open': filtered_closes[i],
+                    'high': filtered_closes[i],
+                    'low': filtered_closes[i],
+                    'volume': 0
+                }
+                for i in range(len(filtered_dates))
+            ]
+            
+            print(f"✓ 從本地檔案讀取 {len(data)} 筆數據")
+            print(f"數據範圍: {data[0]['date']} 至 {data[-1]['date']}")
+            
+            return jsonify({
+                'symbol': symbol,
+                'name': INDICES[symbol]['name'],
+                'history': data,
+                'data_range': {
+                    'start': data[0]['date'],
+                    'end': data[-1]['date'],
+                    'count': len(data)
+                }
+            })
+    
+    # 如果本地沒有數據，回退到下載
+    print("⚠️  本地無數據，從 Yahoo Finance 下載...")
     data = download_stock_data(symbol, start_date=start_date, end_date=end_date)
     
     if data is None or len(data) == 0:
@@ -825,6 +959,82 @@ def load_stock_data_from_local(symbol):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/storage/stock/<symbol>', methods=['GET'])
+def get_stock_from_local(symbol):
+    """從本地存儲獲取單個股票數據（支持多個數據源）"""
+    try:
+        start_date = request.args.get('start_date', '2010-01-01')
+        end_date = request.args.get('end_date', None)
+        
+        print(f"從本地獲取股票數據: {symbol}, 日期區間: {start_date} 至 {end_date or '今日'}")
+        
+        # 嘗試從多個目錄加載股票數據
+        stock_data = None
+        tried_dirs = []
+        
+        # 先嘗試從所有可能的目錄加載
+        possible_dirs = [
+            '/app/data/stocks',          # NASDAQ
+            '/app/data/dow_jones_stocks', # 道瓊工業指數
+            '/app/data/sp500_stocks'     # S&P 500
+        ]
+        
+        for data_dir in possible_dirs:
+            tried_dirs.append(data_dir)
+            file_path = os.path.join(data_dir, f"{symbol}.json.gz")
+            if os.path.exists(file_path):
+                print(f"  ✓ 在 {data_dir} 找到 {symbol}")
+                try:
+                    import gzip
+                    with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+                        stock_data = json.load(f)
+                    break
+                except Exception as e:
+                    print(f"  ✗ 從 {file_path} 加載失敗: {e}")
+                    continue
+        
+        if not stock_data:
+            print(f"  ✗ 在以下目錄中都找不到 {symbol}: {tried_dirs}")
+            return jsonify({
+                'error': f'找不到股票 {symbol} 的數據',
+                'tried_dirs': tried_dirs
+            }), 404
+        
+        # 支援兩種格式：'close' (新格式) 和 'close_prices' (舊格式)
+        close_data = stock_data.get('close') or stock_data.get('close_prices')
+        if not close_data:
+            return jsonify({'error': f'股票 {symbol} 數據格式錯誤'}), 500
+        
+        # 過濾日期範圍
+        filtered_data = []
+        for i in range(len(stock_data['dates'])):
+            date = stock_data['dates'][i]
+            if date >= start_date and (end_date is None or date <= end_date):
+                filtered_data.append({
+                    'date': date,
+                    'close': close_data[i]
+                })
+        
+        if len(filtered_data) == 0:
+            return jsonify({'error': '指定日期範圍內沒有數據'}), 404
+        
+        return jsonify({
+            'symbol': symbol,
+            'name': stock_data.get('name', symbol),
+            'data': filtered_data,
+            'data_range': {
+                'start': filtered_data[0]['date'],
+                'end': filtered_data[-1]['date'],
+                'trading_days': len(filtered_data)
+            }
+        })
+    
+    except Exception as e:
+        print(f"獲取股票數據失敗: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/storage/correlation-analysis', methods=['POST'])
 def analyze_correlation_from_local():
     """使用本地存儲數據分析相關性（只保留相關性 > 0.8 的股票）"""
@@ -842,15 +1052,31 @@ def analyze_correlation_from_local():
         print(f"相關性閾值: > {threshold}")
         print(f"{'='*50}\n")
         
-        # 1. 下載指數數據（使用指定的日期區間）
-        print(f"正在下載指數數據 {index_symbol}...")
-        index_data = download_stock_data(index_symbol, start_date, end_date)
-        if index_data is None or len(index_data) == 0:
-            return jsonify({'error': '無法獲取指數數據'}), 500
+        # 1. 從本地存儲載入指數數據（使用指定的日期區間）
+        print(f"正在從本地存儲載入指數數據 {index_symbol}...")
+        index_stock_data = data_storage.load_stock_data(index_symbol)
         
-        # 轉換指數數據為日期-收盤價字典（只保留指定區間內的數據）
-        index_close_dict = {item['date']: item['close'] for item in index_data}
+        if not index_stock_data or 'dates' not in index_stock_data:
+            return jsonify({'error': '無法獲取指數數據，請確保已下載到本地'}), 500
+        
+        # 支援兩種格式：'close' (新格式) 和 'close_prices' (舊格式)
+        index_close_data = index_stock_data.get('close') or index_stock_data.get('close_prices')
+        if not index_close_data:
+            return jsonify({'error': '指數數據格式錯誤'}), 500
+        
+        # 轉換指數數據為日期-收盤價字典，並過濾到指定日期區間
+        index_close_dict = {}
+        for i in range(len(index_stock_data['dates'])):
+            date = index_stock_data['dates'][i]
+            # 只保留在指定日期區間內的數據
+            if date >= start_date and (end_date is None or date <= end_date):
+                index_close_dict[date] = index_close_data[i]
+        
         index_dates = sorted(index_close_dict.keys())
+        
+        # 檢查是否有數據
+        if len(index_dates) == 0:
+            return jsonify({'error': f'在指定的日期區間 ({start_date} ~ {end_date}) 內沒有找到指數數據'}), 400
         
         # 確保日期在指定區間內
         index_dates_set = set(index_dates)
@@ -858,14 +1084,18 @@ def analyze_correlation_from_local():
         print(f"✓ 指數數據: {len(index_dates)} 個交易日")
         print(f"  日期範圍: {index_dates[0]} 至 {index_dates[-1]}\n")
         
-        # 2. 獲取本地存儲的所有股票
+        # 2. 根據指數選擇對應的股票數據目錄
         print("正在掃描本地存儲的股票...")
-        stocks_dir = '/app/data/stocks'
+        stocks_dir = INDEX_DATA_DIRS.get(index_symbol, '/app/data/stocks')
+        
         if not os.path.exists(stocks_dir):
-            return jsonify({'error': '本地數據目錄不存在'}), 404
+            return jsonify({
+                'error': f'本地數據目錄不存在: {stocks_dir}',
+                'message': f'請先執行 {INDICES[index_symbol]["name"]} 的數據下載'
+            }), 404
         
         stock_files = [f for f in os.listdir(stocks_dir) if f.endswith('.json.gz')]
-        print(f"✓ 找到 {len(stock_files)} 支股票\n")
+        print(f"✓ 從 {stocks_dir} 找到 {len(stock_files)} 支股票\n")
         
         if len(stock_files) == 0:
             return jsonify({
@@ -880,15 +1110,40 @@ def analyze_correlation_from_local():
         results = []
         analyzed_count = 0
         
+        def load_stock_from_dir(symbol, stocks_dir):
+            """從指定目錄加載股票數據"""
+            import gzip
+            file_path = os.path.join(stocks_dir, f"{symbol}.json.gz")
+            try:
+                with gzip.open(file_path, 'rt', encoding='utf-8') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"從 {file_path} 加載失敗: {e}")
+                return None
+        
         def analyze_stock(stock_file):
             nonlocal analyzed_count
             symbol = stock_file.replace('.json.gz', '')
             
+            # 跳過指數本身
+            if symbol == index_symbol:
+                return None
+            
+            # 跳過 NVDA_fixed (重複數據)
+            if symbol == 'NVDA_fixed':
+                return None
+            
             try:
-                # 從本地加載股票數據
-                stock_data = data_storage.load_stock_data(symbol)
-                if not stock_data or 'dates' not in stock_data or 'close_prices' not in stock_data:
+                # 從指定目錄加載股票數據
+                stock_data = load_stock_from_dir(symbol, stocks_dir)
+                if not stock_data or 'dates' not in stock_data:
                     analyzed_count += 1  # 計數加載失敗的股票
+                    return None
+                
+                # 支援兩種格式：'close' (新格式) 和 'close_prices' (舊格式)
+                close_data = stock_data.get('close') or stock_data.get('close_prices')
+                if not close_data:
+                    analyzed_count += 1  # 計數無收盤價數據的股票
                     return None
                 
                 # 創建股票的日期-收盤價字典，並過濾到指定日期區間
@@ -897,7 +1152,7 @@ def analyze_correlation_from_local():
                     date = stock_data['dates'][i]
                     # 只保留在指定日期區間內的數據
                     if date >= start_date and (end_date is None or date <= end_date):
-                        stock_close_dict[date] = stock_data['close_prices'][i]
+                        stock_close_dict[date] = close_data[i]
                 
                 # 找出與指數共同的交易日（已經在指定區間內）
                 common_dates = sorted(index_dates_set & set(stock_close_dict.keys()))
@@ -980,6 +1235,350 @@ def analyze_correlation_from_local():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+# ===== 道瓊工業指數專用端點 =====
+
+@app.route('/dow-jones/download-all', methods=['POST'])
+def download_dow_jones_stocks():
+    """下載道瓊工業指數30支成分股的歷史資料到本地存儲"""
+    try:
+        import dow_jones_downloader
+        
+        start_date = request.json.get('start_date', '2010-01-01') if request.json else '2010-01-01'
+        end_date = request.json.get('end_date', None) if request.json else None
+        max_workers = request.json.get('max_workers', 5) if request.json else 5
+        
+        print(f"\n開始下載道瓊工業指數成分股歷史資料")
+        print(f"起始日期: {start_date}")
+        print(f"結束日期: {end_date or '今天'}")
+        print(f"並行線程: {max_workers}")
+        
+        # 執行批量下載
+        result = dow_jones_downloader.bulk_download_dow_jones(
+            start_date=start_date,
+            end_date=end_date,
+            max_workers=max_workers
+        )
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功下載 {result["successful"]}/{result["total_stocks"]} 支股票',
+            'total_stocks': result['total_stocks'],
+            'successful': result['successful'],
+            'failed': result['failed'],
+            'elapsed_time_seconds': result['elapsed_time_seconds'],
+            'data_dir': '/app/data/dow_jones_stocks'
+        })
+        
+    except Exception as e:
+        print(f"下載道瓊工業指數股票失敗: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/dow-jones/download-status', methods=['GET'])
+def get_dow_jones_download_status():
+    """獲取道瓊工業指數數據下載狀態"""
+    try:
+        import os
+        import json
+        
+        data_dir = '/app/data/dow_jones_stocks'
+        meta_file = '/app/data/dow_jones_meta.json'
+        
+        # 檢查數據目錄
+        if not os.path.exists(data_dir):
+            return jsonify({
+                'downloaded': False,
+                'message': '尚未下載道瓊工業指數成分股數據'
+            })
+        
+        # 統計已下載的股票數量
+        stock_files = [f for f in os.listdir(data_dir) if f.endswith('.json.gz')]
+        
+        # 讀取元數據
+        meta = None
+        if os.path.exists(meta_file):
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        
+        return jsonify({
+            'downloaded': True,
+            'total_files': len(stock_files),
+            'data_dir': data_dir,
+            'meta': meta
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ===== S&P 500 專用端點 =====
+
+@app.route('/sp500/download-all', methods=['POST'])
+def download_sp500_stocks():
+    """下載 S&P 500 成分股的歷史資料到本地存儲"""
+    try:
+        import sp500_downloader
+        
+        start_date = request.json.get('start_date', '2010-01-01') if request.json else '2010-01-01'
+        end_date = request.json.get('end_date', None) if request.json else None
+        max_workers = request.json.get('max_workers', 10) if request.json else 10
+        
+        print(f"\n開始下載 S&P 500 成分股歷史資料")
+        print(f"起始日期: {start_date}")
+        print(f"結束日期: {end_date or '今天'}")
+        print(f"並行線程: {max_workers}")
+        
+        # 執行批量下載
+        result = sp500_downloader.bulk_download_sp500(
+            start_date=start_date,
+            end_date=end_date,
+            max_workers=max_workers
+        )
+        
+        if not result:
+            return jsonify({'error': '下載失敗'}), 500
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功下載 {result["successful"]}/{result["total_stocks"]} 支股票',
+            'total_stocks': result['total_stocks'],
+            'successful': result['successful'],
+            'failed': result['failed'],
+            'success_rate': round(result['successful']/result['total_stocks']*100, 1),
+            'elapsed_time_seconds': result['elapsed_time_seconds'],
+            'data_dir': '/app/data/sp500_stocks'
+        })
+        
+    except Exception as e:
+        print(f"下載 S&P 500 股票失敗: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/sp500/download-status', methods=['GET'])
+def get_sp500_download_status():
+    """獲取 S&P 500 數據下載狀態"""
+    try:
+        import os
+        import json
+        
+        data_dir = '/app/data/sp500_stocks'
+        meta_file = '/app/data/sp500_meta.json'
+        
+        # 檢查數據目錄
+        if not os.path.exists(data_dir):
+            return jsonify({
+                'downloaded': False,
+                'message': '尚未下載 S&P 500 成分股數據'
+            })
+        
+        # 統計已下載的股票數量
+        stock_files = [f for f in os.listdir(data_dir) if f.endswith('.json.gz')]
+        
+        # 讀取元數據
+        meta = None
+        if os.path.exists(meta_file):
+            with open(meta_file, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+        
+        return jsonify({
+            'downloaded': True,
+            'total_files': len(stock_files),
+            'data_dir': data_dir,
+            'meta': meta
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/storage/drawdown-periods', methods=['POST'])
+def get_drawdown_periods():
+    """
+    計算並返回指數的波段下跌區間
+    當跌幅超過指定閾值時標記為重要下跌區間
+    """
+    try:
+        data = request.get_json()
+        index_symbol = data.get('index_symbol', '^IXIC')
+        threshold = float(data.get('threshold', 0.15))  # 默認15%
+        
+        print(f"\n計算波段下跌區間: {index_symbol}, 閾值: {threshold*100}%")
+        
+        # 從本地存儲加載指數數據
+        stock_data = data_storage.load_stock_data(index_symbol)
+        
+        # 如果本地沒有，嘗試從 yfinance 獲取
+        if not stock_data:
+            print(f"本地沒有 {index_symbol} 數據，嘗試從 yfinance 獲取...")
+            from datetime import datetime, timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365*16)  # 獲取16年數據
+            
+            ticker = yf.Ticker(index_symbol)
+            hist = ticker.history(start=start_date, end=end_date)
+            
+            if hist.empty:
+                return jsonify({'error': f'無法獲取 {index_symbol} 的數據'}), 404
+            
+            # 轉換為標準格式
+            stock_data = {
+                'symbol': index_symbol,
+                'data': [
+                    {
+                        'date': date.strftime('%Y-%m-%d'),
+                        'close': float(row['Close'])
+                    }
+                    for date, row in hist.iterrows()
+                ]
+            }
+            print(f"成功從 yfinance 獲取 {len(stock_data['data'])} 筆數據")
+        
+        # 轉換為DataFrame - 兼容兩種格式
+        if 'data' in stock_data and stock_data['data']:
+            # 新格式: {data: [{date, close}, ...]}
+            df = pd.DataFrame(stock_data['data'])
+        elif 'dates' in stock_data and 'close' in stock_data:
+            # 舊格式: {dates: [...], close: [...]}
+            df = pd.DataFrame({
+                'date': stock_data['dates'],
+                'close': stock_data['close']
+            })
+        else:
+            return jsonify({'error': f'{index_symbol} 數據格式錯誤'}), 400
+        
+        df['date'] = pd.to_datetime(df['date'])
+        df = df.sort_values('date')
+        df['close'] = df['close'].astype(float)
+        
+        # 計算波段高點和下跌區間（優化算法：只追踪重要的下跌）
+        drawdown_periods = []
+        
+        # 方法：追踪running maximum，當從高點下跌超過閾值時標記
+        # 但允許在創新高之前就標記下跌區間（不要求必須恢復到峰值）
+        running_max = df['close'].iloc[0]
+        running_max_date = df['date'].iloc[0]
+        running_max_idx = 0
+        
+        for idx in range(len(df)):
+            current_price = df['close'].iloc[idx]
+            current_date = df['date'].iloc[idx]
+            
+            # 如果創新高，更新running maximum
+            if current_price > running_max:
+                running_max = current_price
+                running_max_date = current_date
+                running_max_idx = idx
+            else:
+                # 計算從running max的跌幅
+                drawdown_pct = (running_max - current_price) / running_max
+                
+                # 如果跌幅超過閾值，檢查是否應該創建新區間
+                if drawdown_pct >= threshold:
+                    # 從running_max到當前找最低點
+                    segment = df.iloc[running_max_idx:idx+1]
+                    trough_idx = segment['close'].idxmin()
+                    trough_price = segment.loc[trough_idx, 'close']
+                    trough_date = segment.loc[trough_idx, 'date']
+                    
+                    actual_drawdown = (running_max - trough_price) / running_max
+                    
+                    # 檢查是否已經記錄過這個峰值的下跌
+                    already_recorded = False
+                    for existing in drawdown_periods:
+                        if existing['peak_date'] == running_max_date.strftime('%Y-%m-%d'):
+                            # 如果新的谷底更低，更新記錄
+                            if trough_price < existing['trough_price']:
+                                existing['trough_date'] = trough_date.strftime('%Y-%m-%d')
+                                existing['trough_price'] = float(trough_price)
+                                existing['drawdown_pct'] = float(actual_drawdown)
+                                existing['duration_days'] = int((trough_date - running_max_date).days)
+                            already_recorded = True
+                            break
+                    
+                    # 如果還沒記錄，創建新記錄
+                    if not already_recorded:
+                        # 嘗試找恢復日期
+                        future_data = df.iloc[idx+1:]
+                        recovery_date = None
+                        recovery_price = None
+                        
+                        for future_idx in future_data.index:
+                            if df.loc[future_idx, 'close'] >= running_max:
+                                recovery_date = df.loc[future_idx, 'date']
+                                recovery_price = df.loc[future_idx, 'close']
+                                break
+                        
+                        drawdown_periods.append({
+                            'peak_date': running_max_date.strftime('%Y-%m-%d'),
+                            'peak_price': float(running_max),
+                            'trough_date': trough_date.strftime('%Y-%m-%d'),
+                            'trough_price': float(trough_price),
+                            'drawdown_pct': float(actual_drawdown),
+                            'recovery_date': recovery_date.strftime('%Y-%m-%d') if recovery_date else None,
+                            'recovery_price': float(recovery_price) if recovery_price else None,
+                            'duration_days': int((trough_date - running_max_date).days)
+                        })
+        
+        # 按峰值日期排序
+        drawdown_periods.sort(key=lambda x: x['peak_date'])
+        
+        print(f"找到 {len(drawdown_periods)} 個超過 {threshold*100}% 的下跌區間")
+        
+        return jsonify({
+            'drawdown_periods': drawdown_periods,
+            'total_periods': len(drawdown_periods),
+            'threshold': threshold,
+            'index_symbol': index_symbol
+        })
+        
+    except Exception as e:
+        print(f"計算波段下跌錯誤: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+def startup_update_data():
+    """啟動時自動更新數據到最新"""
+    try:
+        print("\n" + "=" * 50)
+        print("正在檢查並更新數據到最新...")
+        print("=" * 50)
+        
+        # 獲取所有那斯達克股票代碼
+        nasdaq_tickers = data_storage.get_nasdaq_tickers()
+        
+        # 獲取統計資訊，確認是否需要更新
+        stats = data_storage.get_storage_stats()
+        
+        if stats.get('total_stocks', 0) > 0:
+            print(f"本地已有 {stats['total_stocks']} 支股票數據")
+            print("執行增量更新，只下載最新數據...")
+            
+            # 執行增量更新
+            result = data_storage.bulk_update_incremental(
+                symbols=nasdaq_tickers,
+                end_date=None  # None 表示更新到今天
+            )
+            
+            print(f"✓ 更新完成！更新了 {result.get('updated', 0)} 支股票")
+        else:
+            print("本地無數據，將下載所有歷史數據...")
+            print("這可能需要幾分鐘，請稍候...")
+            
+            # 執行完整下載
+            result = data_storage.bulk_download_to_local(
+                symbols=nasdaq_tickers
+            )
+            
+            print(f"✓ 下載完成！共 {result.get('successful', 0)} 支股票")
+        
+        print("=" * 50 + "\n")
+        
+    except Exception as e:
+        print(f"⚠ 數據更新警告: {str(e)}")
+        print("API 將使用現有數據繼續運行")
+        print("=" * 50 + "\n")
+
 if __name__ == '__main__':
     print("=" * 50)
     print("美國股市分析系統 - 後端 API (優化版)")
@@ -993,10 +1592,14 @@ if __name__ == '__main__':
     print("  ✓ 並行數據下載")
     print("  ✓ gzip 壓縮")
     print("  ✓ 向量化數據處理")
+    print("  ✓ 啟動時自動更新數據")
     print("=" * 50)
     print("數據範圍: 2010-01-01 至今")
     print("=" * 50)
     print("API 啟動於 http://localhost:8000")
     print("=" * 50)
+    
+    # 啟動時更新數據
+    startup_update_data()
     
     app.run(host='0.0.0.0', port=8000, debug=False)

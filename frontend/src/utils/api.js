@@ -41,7 +41,7 @@ export const fetchAllIndices = async () => {
   }
 }
 
-export const analyzeCorrelationFromLocal = async (indexSymbol, threshold = 0.8, startDate = '2010-01-01', endDate = null) => {
+export const analyzeCorrelationFromLocal = async (indexSymbol, startDate = '2010-01-01', endDate = null, threshold = 0.8) => {
   try {
     const response = await axios.post(`${API_BASE_URL}/storage/correlation-analysis`, {
       index_symbol: indexSymbol,
@@ -52,6 +52,20 @@ export const analyzeCorrelationFromLocal = async (indexSymbol, threshold = 0.8, 
     return response.data
   } catch (error) {
     console.error('本地數據相關性分析失敗:', error)
+    throw error
+  }
+}
+
+export const fetchStockDataFromLocal = async (symbol, startDate = '2010-01-01', endDate = null) => {
+  try {
+    const params = { start_date: startDate }
+    if (endDate) {
+      params.end_date = endDate
+    }
+    const response = await axios.get(`${API_BASE_URL}/storage/stock/${symbol}`, { params })
+    return response.data
+  } catch (error) {
+    console.error('獲取本地股票數據失敗:', error)
     throw error
   }
 }

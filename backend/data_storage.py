@@ -72,6 +72,7 @@ def ensure_data_dir():
 
 def get_stock_file_path(symbol: str) -> str:
     """獲取股票數據文件路徑"""
+    # 不再移除 ^ 符號，保持原始符號
     return os.path.join(DATA_DIR, f"{symbol}.json.gz")
 
 def save_stock_data(symbol: str, dates: List[str], close_prices: List[float], 
@@ -125,6 +126,12 @@ def load_stock_data(symbol: str) -> Optional[Dict]:
     """
     try:
         file_path = get_stock_file_path(symbol)
+        
+        # 如果原始符號找不到檔案，嘗試移除 ^ 符號
+        if not os.path.exists(file_path) and symbol.startswith('^'):
+            alternative_symbol = symbol[1:]  # 移除開頭的 ^
+            file_path = get_stock_file_path(alternative_symbol)
+            print(f"嘗試使用替代檔名: {symbol} -> {alternative_symbol}")
         
         if not os.path.exists(file_path):
             return None

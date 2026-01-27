@@ -1,13 +1,21 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
+from flask_compress import Compress
 import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from scipy.stats import pearsonr
+from functools import lru_cache
+import hashlib
+import json
 
 app = Flask(__name__)
 CORS(app)
+Compress(app)  # 啟用 gzip 壓縮
+
+# 內存緩存
+cache = {}
 
 # 三大指數配置
 INDICES = {
@@ -37,6 +45,12 @@ def download_stock_data(symbol, start_date='2010-01-01', end_date=None):
         if end_date is None:
             end_date = datetime.now().strftime('%Y-%m-%d')
         
+        # 檢查緩存
+        cache_key = f"{symbol}_{start_date}_{end_date}"
+        if cache_key in cache:
+            print(f"✓ 使用緩存: {symbol}")
+            return cache[cache_key]
+        
         print(f"下載 {symbol} 數據: {start_date} 至 {end_date}")
         ticker = yf.Ticker(symbol)
         hist = ticker.history(start=start_date, end=end_date)
@@ -59,6 +73,9 @@ def download_stock_data(symbol, start_date='2010-01-01', end_date=None):
                 'volume': int(row['Volume'])
             })
         
+        # 緩存數據
+        cache[cache_key] = data
+        
         return data
     except Exception as e:
         print(f"下載 {symbol} 數據失敗: {str(e)}")
@@ -71,17 +88,17 @@ def calculate_correlation(index_data, stock_data):
     只使用日期對齊的數據點
     """
     try:
-        # 轉換為 DataFrame
-        index_df = pd.DataFrame(index_data)
-        stock_df = pd.DataFrame(stock_data)
+        # 轉換為 DataFrame 並優化
+        index_df = pd.DataFrame(index_data, columns=['date', 'close'])
+        stock_df = pd.DataFrame(stock_data, columns=['date', 'close'])
         
         # 確保日期格式正確
         index_df['date'] = pd.to_datetime(index_df['date'])
         stock_df['date'] = pd.to_datetime(stock_df['date'])
         
-        # 只保留需要的列
-        index_df = index_df[['date', 'close']].rename(columns={'close': 'index_close'})
-        stock_df = stock_df[['date', 'close']].rename(columns={'close': 'stock_close'})
+        # 重命名列
+        index_df.rename(columns={'close': 'index_close'}, inplace=True)
+        stock_df.rename(columns={'close': 'stock_close'}, inplace=True)
         
         # 合併數據（內連接，只保留共同日期）
         merged = pd.merge(index_df, stock_df, on='date', how='inner')
@@ -92,10 +109,10 @@ def calculate_correlation(index_data, stock_data):
         
         print(f"計算相關性: 使用 {len(merged)} 個數據點")
         
-        # 計算皮爾森相關係數
-        correlation, p_value = pearsonr(merged['index_close'], merged['stock_close'])
+        # 使用 numpy 加速計算
+        correlation = np.corrcoef(merged['index_close'].values, merged['stock_close'].values)[0, 1]
         
-        print(f"相關係數: {correlation:.4f}, p值: {p_value:.6f}")
+        print(f"相關係數: {correlation:.4f}")
         
         return float(correlation)
     except Exception as e:
