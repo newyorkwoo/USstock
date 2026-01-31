@@ -38,6 +38,7 @@
                 type="date" 
                 v-model="startDate"
                 min="2010-01-01"
+                :max="todayStr"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -46,7 +47,8 @@
               <input 
                 type="date" 
                 v-model="endDate"
-                :max="yesterday"
+                min="2010-01-01"
+                :max="todayStr"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
@@ -165,7 +167,7 @@ export default {
     const priceChange = ref(0)
     const volume = ref('--')
     const dataRange = ref(null)
-    const correlationThreshold = ref(0.7)
+    const correlationThreshold = ref(0.9)
     const correlationResults = ref([])
     const selectedStockData = ref(null)
     const drawdownPeriods = ref([])
@@ -181,11 +183,9 @@ export default {
 
     // 日期選擇器
     const today = new Date()
-    const yesterday = new Date(today)
-    yesterday.setDate(yesterday.getDate() - 1)
-    const yesterdayStr = yesterday.toISOString().split('T')[0]
+    const todayStr = today.toISOString().split('T')[0]
     const startDate = ref('2010-01-01')
-    const endDate = ref(yesterdayStr)
+    const endDate = ref(todayStr)
 
     const loadData = async () => {
       loading.value = true
@@ -385,6 +385,19 @@ export default {
       selectedStockData.value = null
     })
 
+    // 監聽日期範圍變化，自動重新載入K線圖數據（使用 debounce 避免頻繁請求）
+    let dateChangeTimer = null
+    watch([startDate, endDate], () => {
+      // 清除之前的定時器
+      if (dateChangeTimer) {
+        clearTimeout(dateChangeTimer)
+      }
+      // 延遲 500ms 後執行，避免用戶還在選擇日期時就觸發請求
+      dateChangeTimer = setTimeout(() => {
+        loadData()
+      }, 500)
+    })
+
     onMounted(() => {
       loadData()
     })
@@ -399,7 +412,7 @@ export default {
       priceChange,
       volume,
       dataRange,
-      yesterday: yesterdayStr,
+      todayStr,
       startDate,
       endDate,
       correlationThreshold,

@@ -20,61 +20,13 @@ import data_storage  # 導入本地數據存儲模組
 app = Flask(__name__)
 CORS(app)
 
-# 數據更新標誌（確保只更新一次）
-DATA_UPDATE_DONE = False
+# 數據更新標誌（用於追蹤後台更新狀態）
+DATA_UPDATE_STATUS = {
+    'in_progress': False,
+    'last_update': None,
+    'error': None
+}
 DATA_UPDATE_LOCK = threading.Lock()
-
-def ensure_data_updated():
-    """確保數據已更新到最新（線程安全，只執行一次）"""
-    global DATA_UPDATE_DONE
-    
-    with DATA_UPDATE_LOCK:
-        if DATA_UPDATE_DONE:
-            return
-        
-        try:
-            print("\n" + "=" * 60)
-            print("🔄 正在檢查並更新數據到最新...")
-            print("=" * 60)
-            
-            # 獲取所有那斯達克股票代碼
-            nasdaq_tickers = data_storage.get_nasdaq_tickers()
-            
-            # 獲取統計資訊
-            stats = data_storage.get_storage_stats()
-            
-            if stats.get('total_stocks', 0) > 0:
-                print(f"📊 本地已有 {stats['total_stocks']} 支股票數據")
-                print("⏩ 執行增量更新，只下載最新數據...")
-                
-                # 執行增量更新
-                result = data_storage.bulk_update_incremental(
-                    symbols=nasdaq_tickers,
-                    end_date=None  # None 表示更新到今天
-                )
-                
-                updated = result.get('updated', 0)
-                skipped = result.get('skipped', 0)
-                print(f"✅ 更新完成！更新了 {updated} 支股票，跳過 {skipped} 支")
-            else:
-                print("📥 本地無數據，將下載所有歷史數據...")
-                print("⏳ 這可能需要幾分鐘，請稍候...")
-                
-                # 執行完整下載
-                result = data_storage.bulk_download_to_local(
-                    symbols=nasdaq_tickers
-                )
-                
-                print(f"✅ 下載完成！共 {result.get('successful', 0)} 支股票")
-            
-            DATA_UPDATE_DONE = True
-            print("=" * 60 + "\n")
-            
-        except Exception as e:
-            print(f"⚠️  數據更新警告: {str(e)}")
-            print("🔧 API 將使用現有數據繼續運行")
-            print("=" * 60 + "\n")
-            DATA_UPDATE_DONE = True  # 即使失敗也標記為完成，避免重複嘗試
 
 # Redis 配置
 try:
@@ -245,13 +197,23 @@ def download_stock_info(symbol):
     except:
         return symbol
 
-# 在第一個請求前確保數據已更新
-@app.before_request
-def before_first_request():
-    """在第一個請求前執行數據更新"""
-    ensure_data_updated()
+# Redis 配置
+try:
+    redis_client = redis.Redis(
+        host='redis',
+        port=6379,
+        db=0,
+        decode_responses=False,
+        socket_connect_timeout=5
+    )
+    redis_client.ping()
+    REDIS_AVAILABLE = True
+    print("✓ Redis 連接成功")
+except:
+    REDIS_AVAILABLE = False
+    print("✗ Redis 不可用，使用無緩存模式")
 
-@app.route('/index/<symbol>', methods=['GET'])
+@app.route('/api/index/<symbol>', methods=['GET'])
 def get_index_data(symbol):
     """獲取指數歷史數據（支持自定義日期範圍，優先從本地讀取）"""
     if symbol not in INDICES:
@@ -350,7 +312,7 @@ def get_index_data(symbol):
         }
     })
 
-@app.route('/correlation/<symbol>', methods=['GET'])
+@app.route('/api/correlation/<symbol>', methods=['GET'])
 @cache_result(ttl=CACHE_TTL_CORRELATION)
 def get_correlation_data(symbol):
     """獲取指數成分股與指數的相關性（優化版：並行下載）"""
@@ -1538,46 +1500,50 @@ def get_drawdown_periods():
         return jsonify({'error': str(e)}), 500
 
 def startup_update_data():
-    """啟動時自動更新數據到最新"""
-    try:
-        print("\n" + "=" * 50)
-        print("正在檢查並更新數據到最新...")
-        print("=" * 50)
-        
-        # 獲取所有那斯達克股票代碼
-        nasdaq_tickers = data_storage.get_nasdaq_tickers()
-        
-        # 獲取統計資訊，確認是否需要更新
-        stats = data_storage.get_storage_stats()
-        
-        if stats.get('total_stocks', 0) > 0:
-            print(f"本地已有 {stats['total_stocks']} 支股票數據")
-            print("執行增量更新，只下載最新數據...")
+    """啟動時在後台線程更新數據（非阻塞）"""
+    def update_in_background():
+        try:
+            print("\n" + "=" * 50)
+            print("🔄 後台數據更新已啟動...")
+            print("=" * 50)
             
-            # 執行增量更新
-            result = data_storage.bulk_update_incremental(
-                symbols=nasdaq_tickers,
-                end_date=None  # None 表示更新到今天
-            )
+            # 獲取所有那斯達克股票代碼
+            nasdaq_tickers = data_storage.get_nasdaq_tickers()
             
-            print(f"✓ 更新完成！更新了 {result.get('updated', 0)} 支股票")
-        else:
-            print("本地無數據，將下載所有歷史數據...")
-            print("這可能需要幾分鐘，請稍候...")
+            # 獲取統計資訊，確認是否需要更新
+            stats = data_storage.get_storage_stats()
             
-            # 執行完整下載
-            result = data_storage.bulk_download_to_local(
-                symbols=nasdaq_tickers
-            )
+            if stats.get('total_stocks', 0) > 0:
+                print(f"📊 本地已有 {stats['total_stocks']} 支股票數據")
+                print("⏩ 執行增量更新，只下載最新數據...")
+                
+                # 執行增量更新
+                result = data_storage.bulk_update_incremental(
+                    symbols=nasdaq_tickers,
+                    end_date=None  # None 表示更新到今天
+                )
+                
+                print(f"✅ 更新完成！更新了 {result.get('updated', 0)} 支股票")
+            else:
+                print("📥 本地無數據，將下載所有歷史數據...")
+                print("⏳ 這可能需要幾分鐘，請稍候...")
+                
+                # 執行完整下載
+                result = data_storage.bulk_download_to_local(
+                    symbols=nasdaq_tickers
+                )
+                
+                print(f"✅ 下載完成！共 {result.get('successful', 0)} 支股票")
             
-            print(f"✓ 下載完成！共 {result.get('successful', 0)} 支股票")
-        
-        print("=" * 50 + "\n")
-        
-    except Exception as e:
-        print(f"⚠ 數據更新警告: {str(e)}")
-        print("API 將使用現有數據繼續運行")
-        print("=" * 50 + "\n")
+            print("=" * 50 + "\n")
+        except Exception as e:
+            print(f"⚠️  後台更新錯誤: {str(e)}")
+            print("=" * 50 + "\n")
+    
+    # 在後台線程中執行更新，不阻塞主線程
+    update_thread = threading.Thread(target=update_in_background, daemon=True)
+    update_thread.start()
+    print("\n✨ API 已就緒，數據更新在後台進行中...\n")
 
 if __name__ == '__main__':
     print("=" * 50)

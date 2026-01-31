@@ -4,39 +4,36 @@
 
 ## 🚀 快速開始
 
+### 一鍵啟動（推薦）
+
 ```bash
-# 1. 啟動所有服務
+# 自動更新三大指數及所屬股票的歷史數據後啟動系統
+./startup.sh
+```
+
+此腳本會自動執行以下操作：
+
+1. 啟動 Docker 服務（Redis、後端、前端）
+2. 更新 NASDAQ 指數數據
+3. 更新道瓊工業指數數據
+4. 更新 S&P 500 指數及 503 支成分股數據
+5. 清除 Redis 緩存並重啟後端服務
+
+**系統時區**: UTC+8 (Asia/Taipei)
+
+### 手動啟動
+
+```bash
+# 啟動所有服務
 docker-compose up -d
 
-# 2. （可選）自動下載最新股票資料
-./auto-download-data.sh
-
-# 3. 訪問應用
+# 訪問應用
 open http://localhost
 ```
 
-就這麼簡單！🎉
+## 📊 功能特點
 
-## 技術架構
-
-### 前端
-
-- **框架**: Vite + Vue 3 (JavaScript)
-- **樣式**: Tailwind CSS
-- **圖表**: Chart.js + vue-chartjs
-- **HTTP 客戶端**: Axios
-- **特色**: 動態端口檢測（自動尋找可用端口 3000-3100）
-
-### 後端
-
-- **框架**: Flask (Python)
-- **數據來源**: Yahoo Finance (yfinance)
-- **數據分析**: pandas, numpy, scipy
-- **跨域**: Flask-CORS
-
-## 功能特點
-
-### 1. 三大指數分類
+### 1. 三大指數分析
 
 - **NASDAQ** (^IXIC): 納斯達克綜合指數
 - **道瓊工業指數** (^DJI): Dow Jones Industrial Average
@@ -44,239 +41,105 @@ open http://localhost
 
 ### 2. K 線圖展示
 
-- 紅色 K 線：收盤價上漲
-- 綠色 K 線：收盤價下跌
-- 顯示開盤、收盤、最高、最低價格
-- 顯示成交量信息
-- **🆕 日期範圍選擇**: 自定義數據起始和結束日期，查看特定時間段的市場走勢 ([使用說明](DATE_FILTER_GUIDE.md))
+- 完整的 OHLC（開盤、最高、最低、收盤）數據可視化
+- 歷史數據範圍：2010-01-01 至今
+- 自定義日期範圍篩選（2010/01/01 - 今天）
+- 自動標註 15% 以上跌幅區域
 
 ### 3. 相關性分析
 
-- 計算各指數成分股與該指數的皮爾森相關係數
-- 相關性評級：
-  - 高度相關：|r| ≥ 0.8
-  - 中度相關：|r| ≥ 0.5
-  - 低度相關：|r| ≥ 0.3
-  - 弱相關：|r| < 0.3
+- 計算成分股與指數的皮爾森相關係數
+- 可調整相關性閥值（預設 0.9）
+- 顯示高度相關的股票列表
 
-### 4. 歷史數據
+### 4. 性能優化
 
-- 從 Yahoo Finance 下載 **2010年1月1日至今** 的完整歷史數據
-- 基於收盤價計算相關性
-- 自動對齊交易日期
-- 只使用共同交易日的數據點進行分析
+- ⚡ Redis 緩存系統
+- 🚀 Gunicorn 多進程處理
+- 🔄 並行數據下載
+- 📦 Gzip 壓縮傳輸
 
-### 5. 性能優化 ([詳細說明](PERFORMANCE.md))
+## 🛠️ 技術架構
 
-- ⚡ **Redis 緩存**: 減少 95% 的重複請求時間
-- 🚀 **Gunicorn**: 多進程並發處理
-- 🔄 **並行下載**: 相關性計算速度提升 5-10 倍
-- 📦 **gzip 壓縮**: 減少 70-80% 數據傳輸量
-- 🎯 **代碼分割**: 優化前端加載速度
+### 前端
 
-## 安裝與啟動
+- **框架**: Vue 3 + Vite
+- **UI**: Tailwind CSS
+- **圖表**: Chart.js
+- **部署**: Nginx
 
-### 🐳 Docker 部署（推薦）
+### 後端
 
-**一鍵啟動所有服務：**
+- **框架**: Flask + Gunicorn
+- **數據源**: Yahoo Finance (yfinance)
+- **分析**: pandas, numpy, scipy
+- **緩存**: Redis
 
-```bash
-# 啟動服務
-docker-compose up -d
+### 基礎設施
 
-# 查看狀態
-docker-compose ps
+- **容器化**: Docker + Docker Compose
+- **反向代理**: Nginx
+- **時區**: Asia/Taipei (UTC+8)
 
-# 查看日誌
-docker-compose logs -f
-```
-
-訪問：http://localhost
-
-**自動下載最新股票資料（可選）：**
-
-```bash
-# 啟動後自動下載最近2年的股票歷史資料
-./auto-download-data.sh
-```
-
-這個腳本會：
-
-- ✓ 等待服務完全啟動
-- ✓ 自動下載所有那斯達克股票資料（約3-5分鐘）
-- ✓ 緩存到 Redis，後續分析速度極快
-- ✓ 顯示下載統計（成功率、數據點總數等）
-
-**停止服務：**
-
-```bash
-docker-compose down
-```
-
-### 手動安裝（開發環境）
-
-#### 後端啟動
-
-```bash
-cd backend
-
-# 安裝依賴
-pip install -r requirements.txt
-
-# 或使用 pip3
-pip3 install -r requirements.txt
-
-# 啟動後端服務器 (Port 8000)
-python app.py
-# 或
-python3 app.py
-```
-
-#### 前端啟動
-
-```bash
-cd frontend
-
-# 安裝依賴
-npm install
-
-# 啟動開發服務器（自動檢測可用端口）
-npm run dev
-
-# 構建生產版本
-npm run build
-
-# 預覽生產版本
-npm run preview
-```
-
-## API 端點
-
-### 獲取指數歷史數據
-
-```
-GET /api/index/<symbol>
-```
-
-參數：
-
-- `symbol`: 指數代碼 (^IXIC, ^DJI, ^GSPC)
-
-返回：
-
-```json
-{
-  "symbol": "^IXIC",
-  "name": "NASDAQ",
-  "history": [
-    {
-      "date": "2024-01-01",
-      "open": 15000.0,
-      "high": 15100.0,
-      "low": 14900.0,
-      "close": 15050.0,
-      "volume": 1000000000
-    }
-  ]
-}
-```
-
-### 獲取相關性分析
-
-```
-GET /api/correlation/<symbol>
-```
-
-參數：
-
-- `symbol`: 指數代碼 (^IXIC, ^DJI, ^GSPC)
-
-返回：
-
-```json
-[
-  {
-    "symbol": "AAPL",
-    "name": "Apple Inc.",
-    "correlation": 0.85
-  }
-]
-```
-
-### 獲取所有指數
-
-```
-GET /api/indices
-```
-
-### 健康檢查
-
-```
-GET /health
-```
-
-## 目錄結構
+## 📂 專案結構
 
 ```
 USstock/
-├── frontend/                 # 前端項目
+├── frontend/              # Vue 3 前端應用
 │   ├── src/
-│   │   ├── components/       # Vue 組件
-│   │   │   ├── KLineChart.vue        # K線圖組件
-│   │   │   └── CorrelationTable.vue  # 相關性表格組件
-│   │   ├── utils/           # 工具函數
-│   │   │   └── api.js       # API 調用
-│   │   ├── App.vue          # 主應用組件
-│   │   ├── main.js          # 入口文件
-│   │   └── style.css        # 全局樣式
-│   ├── public/              # 靜態資源
-│   ├── index.html           # HTML 模板
-│   ├── portDetector.js      # 動態端口檢測
-│   ├── vite.config.js       # Vite 配置
-│   ├── tailwind.config.js   # Tailwind 配置
-│   ├── postcss.config.js    # PostCSS 配置
-│   └── package.json         # 項目配置
-│
-├── backend/                  # 後端項目
-│   ├── app.py               # Flask 應用
-│   └── requirements.txt     # Python 依賴
-│
-└── README.md                # 本文件
+│   │   ├── components/   # Vue 組件
+│   │   ├── utils/        # API 工具
+│   │   └── views/        # 頁面視圖
+│   └── nginx.conf        # Nginx 配置
+├── backend/              # Flask 後端應用
+│   ├── app_optimized.py  # 主應用程式
+│   ├── data_storage.py   # 數據存儲模組
+│   ├── sp500_downloader.py  # S&P 500 下載器
+│   └── gunicorn_config.py   # Gunicorn 配置
+├── docker-compose.yml    # Docker Compose 配置
+├── startup.sh            # 一鍵啟動腳本
+└── README.md
 ```
 
-## 使用流程
+## 🔧 環境需求
 
-1. **啟動後端**：首先啟動 Python 後端服務器（Port 8000）
-2. **啟動前端**：然後啟動 Vue 前端應用（自動檢測可用端口）
-3. **訪問應用**：瀏覽器打開前端提示的 URL
-4. **選擇指數**：點擊頂部標籤切換不同指數
-5. **查看分析**：查看 K 線圖和相關性分析結果
+- Docker 20.10+
+- Docker Compose 2.0+
+- 8GB+ RAM（推薦）
+- 10GB+ 磁碟空間
 
-## 注意事項
+## 📝 使用說明
 
-1. **網絡連接**：需要互聯網連接以從 Yahoo Finance 下載數據
-2. **首次加載**：首次加載可能需要較長時間，因為需要下載大量歷史數據
-3. **API 限制**：Yahoo Finance 可能有請求頻率限制，請適度使用
-4. **端口占用**：
-   - 後端固定使用 8000 端口
-   - 前端自動檢測 3000-3100 範圍內的可用端口
+### 日期篩選
 
-## 開發建議
+- 開始日期：2010/01/01（最早）
+- 結束日期：今天（最晚）
+- 修改日期後會自動重新載入數據
 
-- 修改成分股列表：編輯 `backend/app.py` 中的 `INDICES` 配置
-- 調整歷史數據時間範圍：修改 `download_stock_data` 函數中的 `start_date` 參數（默認 2010-01-01）
-- 自定義圖表樣式：編輯 `frontend/src/components/KLineChart.vue`
-- 修改相關性閾值：編輯 `frontend/src/components/CorrelationTable.vue`
+### 相關性分析
 
-## 技術支持
+- 選擇指數後點擊「分析」按鈕
+- 調整相關性閥值（0.0 - 1.0）
+- 查看符合條件的高度相關股票
 
-如有問題，請檢查：
+### 數據更新
 
-1. Python 和 Node.js 版本是否符合要求
-2. 所有依賴是否正確安裝
-3. 端口 8000 是否被占用
-4. 網絡連接是否正常
+系統啟動時會自動更新所有數據，也可以手動重新執行：
 
-## License
+```bash
+./startup.sh
+```
 
-MIT
+## 🚀 訪問地址
+
+- 前端應用: http://localhost
+- 後端 API: http://localhost:8000
+- Redis: localhost:6379
+
+## 📄 授權
+
+MIT License
+
+## 👨‍💻 作者
+
+Steven - 美國股市分析系統

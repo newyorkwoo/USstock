@@ -5,14 +5,14 @@ import multiprocessing
 # 綁定地址和端口
 bind = "0.0.0.0:8000"
 
-# Worker 配置
-workers = multiprocessing.cpu_count() * 2 + 1  # 推薦的 worker 數量
+# Worker 配置 - 優化啟動速度
+workers = 2  # 減少 worker 數量以加快啟動
 worker_class = "gthread"  # 使用線程 worker
 threads = 4  # 每個 worker 的線程數
 
-# 超時設置
-timeout = 120  # 請求超時時間（秒）
-graceful_timeout = 30  # 優雅關閉超時時間（秒）
+# 超時設置 - 優化性能
+timeout = 60  # 請求超時時間（秒），減少等待時間
+graceful_timeout = 15  # 優雅關閉超時時間（秒）
 keepalive = 5  # Keep-Alive 連接保持時間（秒）
 
 # 日誌配置

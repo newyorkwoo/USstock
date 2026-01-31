@@ -107,6 +107,17 @@ export default {
       }
 
       try {
+        // 計算數據的日期範圍
+        const dates = lineData.map(d => new Date(d.x).getTime())
+        const minDate = new Date(Math.min(...dates))
+        const maxDate = new Date(Math.max(...dates))
+        
+        console.log('Date range:', {
+          min: minDate.toISOString().split('T')[0],
+          max: maxDate.toISOString().split('T')[0],
+          dataPoints: lineData.length
+        })
+
         // 創建圖表配置
         const chartConfig = {
         type: 'line',
@@ -175,6 +186,8 @@ export default {
           scales: {
             x: {
               type: 'time',
+              min: minDate,
+              max: maxDate,
               time: {
                 unit: 'month',
                 displayFormats: {

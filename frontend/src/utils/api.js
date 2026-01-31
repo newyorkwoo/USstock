@@ -1,8 +1,9 @@
 import axios from 'axios'
 
-// 在 Docker 環境中，Nginx 會將 /api 代理到後端
+// 在 Docker 環境中，Nginx 會將 /api 和 /storage 代理到後端
 // 在開發環境中，直接連接到 localhost:8000
 const API_BASE_URL = import.meta.env.PROD ? '/api' : 'http://localhost:8000'
+const STORAGE_BASE_URL = import.meta.env.PROD ? '/storage' : 'http://localhost:8000/storage'
 
 // 配置 axios 全局超時時間為10分鐘，支持大量數據下載
 axios.defaults.timeout = 600000 // 600秒 = 10分鐘
@@ -43,7 +44,7 @@ export const fetchAllIndices = async () => {
 
 export const analyzeCorrelationFromLocal = async (indexSymbol, startDate = '2010-01-01', endDate = null, threshold = 0.8) => {
   try {
-    const response = await axios.post(`${API_BASE_URL}/storage/correlation-analysis`, {
+    const response = await axios.post(`${STORAGE_BASE_URL}/correlation-analysis`, {
       index_symbol: indexSymbol,
       threshold: threshold,
       start_date: startDate,
@@ -62,7 +63,7 @@ export const fetchStockDataFromLocal = async (symbol, startDate = '2010-01-01', 
     if (endDate) {
       params.end_date = endDate
     }
-    const response = await axios.get(`${API_BASE_URL}/storage/stock/${symbol}`, { params })
+    const response = await axios.get(`${STORAGE_BASE_URL}/stock/${symbol}`, { params })
     return response.data
   } catch (error) {
     console.error('獲取本地股票數據失敗:', error)
