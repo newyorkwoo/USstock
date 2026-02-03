@@ -1,51 +1,56 @@
 <template>
   <div class="overflow-x-auto">
-    <table class="min-w-full bg-white border border-gray-200">
-      <thead class="bg-gray-50">
+    <table class="min-w-full" style="background: var(--jp-white);">
+      <thead class="sticky top-0 z-10" style="background: var(--jp-paper);">
         <tr>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-6 py-4 text-left text-jp-sm font-medium tracking-wider" style="color: var(--jp-ink-light); background: var(--jp-paper); border-bottom: 1px solid var(--jp-border);">
             股票代碼
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-6 py-4 text-left text-jp-sm font-medium tracking-wider" style="color: var(--jp-ink-light); background: var(--jp-paper); border-bottom: 1px solid var(--jp-border);">
             股票名稱
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-6 py-4 text-left text-jp-sm font-medium tracking-wider" style="color: var(--jp-ink-light); background: var(--jp-paper); border-bottom: 1px solid var(--jp-border);">
             相關係數
           </th>
-          <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+          <th class="px-6 py-4 text-left text-jp-sm font-medium tracking-wider" style="color: var(--jp-ink-light); background: var(--jp-paper); border-bottom: 1px solid var(--jp-border);">
             相關性評級
           </th>
         </tr>
       </thead>
-      <tbody class="bg-white divide-y divide-gray-200">
+      <tbody style="background: var(--jp-white);">
         <tr v-if="data.length === 0">
-          <td colspan="4" class="px-6 py-4 text-center text-sm text-gray-500">
+          <td colspan="4" class="px-6 py-6 text-center text-jp-base" style="color: var(--jp-ink-light);">
             沒有找到符合條件的股票
           </td>
         </tr>
         <tr 
           v-for="stock in data" 
           :key="stock.symbol" 
-          class="hover:bg-gray-50"
-          :class="{ 'bg-blue-50': selectedStock === stock.symbol }"
+          class="transition-colors duration-150"
+          :style="selectedStock === stock.symbol 
+            ? 'background: var(--jp-hover);' 
+            : ''"
+          style="border-bottom: 1px solid var(--jp-border);"
+          @mouseenter="$event.target.style.background = 'var(--jp-hover)'"
+          @mouseleave="$event.target.style.background = selectedStock === stock.symbol ? 'var(--jp-hover)' : ''"
         >
           <td 
-            class="px-6 py-4 whitespace-nowrap text-sm font-medium cursor-pointer"
-            :class="selectedStock === stock.symbol ? 'text-blue-600' : 'text-blue-500 hover:text-blue-700'"
+            class="px-6 py-4 whitespace-nowrap text-jp-base font-medium cursor-pointer transition-colors"
+            style="color: var(--jp-blue);"
             @click="emit('select-stock', stock)"
           >
             {{ stock.symbol }}
           </td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+          <td class="px-6 py-4 whitespace-nowrap text-jp-base" style="color: var(--jp-ink-light);">
             {{ stock.name }}
           </td>
-          <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+          <td class="px-6 py-4 whitespace-nowrap text-jp-base font-medium" style="color: var(--jp-ink);">
             {{ stock.correlation.toFixed(4) }}
           </td>
           <td class="px-6 py-4 whitespace-nowrap">
             <span 
               :class="getCorrelationBadgeClass(stock.correlation)"
-              class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full"
+              class="px-3 py-1 inline-flex text-jp-sm font-medium rounded-jp"
             >
               {{ getCorrelationLevel(stock.correlation) }}
             </span>
@@ -85,10 +90,11 @@ export default {
 
     const getCorrelationBadgeClass = (corr) => {
       const absCorr = Math.abs(corr)
-      if (absCorr >= 0.8) return 'bg-red-100 text-red-800'
-      if (absCorr >= 0.5) return 'bg-yellow-100 text-yellow-800'
-      if (absCorr >= 0.3) return 'bg-blue-100 text-blue-800'
-      return 'bg-gray-100 text-gray-800'
+      // 日式配色徽章
+      if (absCorr >= 0.8) return 'bg-red-50 text-jp-red border border-red-200'
+      if (absCorr >= 0.5) return 'bg-amber-50 text-jp-gold border border-amber-200'
+      if (absCorr >= 0.3) return 'bg-blue-50 text-jp-blue border border-blue-200'
+      return 'bg-gray-50 text-jp-ink-light border border-gray-200'
     }
 
     return {

@@ -2,11 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 日式簡約風格 - Japanese Minimalist Style */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&family=Noto+Serif+TC:wght@400;600;700&display=swap');
+
+:root {
+  /* 和風配色 */
+  --jp-white: #FAFAF8;      /* 生成色 - 米白 */
+  --jp-paper: #F5F5F0;      /* 紙色 */
+  --jp-ink: #2D2D2D;        /* 墨色 */
+  --jp-ink-light: #5C5C5C;  /* 淡墨 */
+  --jp-red: #C53D43;        /* 朱色 - 日式紅 */
+  --jp-green: #3A5F3A;      /* 松葉色 - 日式綠 */
+  --jp-blue: #2E4A62;       /* 藍鼠色 */
+  --jp-gold: #C49A00;       /* 金茶色 */
+  --jp-border: #E8E4D9;     /* 淺邊框 */
+  --jp-hover: #F0EDE4;      /* 懸停色 */
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Noto Sans TC', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Meiryo', sans-serif;
+  font-size: 17px;
+  line-height: 1.8;
+  color: var(--jp-ink);
+  background-color: var(--jp-paper);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  letter-spacing: 0.02em;
+}
+
+/* 日式卡片樣式 */
+.jp-card {
+  background: var(--jp-white);
+  border: 1px solid var(--jp-border);
+  border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+/* 日式按鈕 */
+.jp-btn {
+  background: var(--jp-ink);
+  color: var(--jp-white);
+  border: none;
+  padding: 12px 28px;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+}
+
+.jp-btn:hover {
+  background: var(--jp-ink-light);
+}
+
+/* 日式輸入框 */
+.jp-input {
+  border: 1px solid var(--jp-border);
+  border-radius: 2px;
+  padding: 12px 16px;
+  font-size: 16px;
+  background: var(--jp-white);
+  transition: border-color 0.2s ease;
+}
+
+.jp-input:focus {
+  outline: none;
+  border-color: var(--jp-ink-light);
+}
+
+/* 滾動條日式風格 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--jp-paper);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--jp-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--jp-ink-light);
 }

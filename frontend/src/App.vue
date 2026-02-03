@@ -1,27 +1,34 @@
 <template>
-  <div class="min-h-screen bg-gray-50">
-    <header class="bg-white shadow-sm">
-      <div class="max-w-7xl mx-auto px-4 py-4">
-        <h1 class="text-2xl font-bold text-gray-900">美國股市分析系統</h1>
+  <div class="min-h-screen" style="background-color: var(--jp-paper);">
+    <!-- 日式標題欄 -->
+    <header class="border-b" style="background-color: var(--jp-white); border-color: var(--jp-border);">
+      <div class="max-w-7xl mx-auto px-8 py-6">
+        <h1 class="text-jp-2xl font-medium tracking-wider" style="color: var(--jp-ink);">
+          美國股市分析系統
+        </h1>
+        <p class="text-jp-sm mt-1" style="color: var(--jp-ink-light);">Stock Market Analysis</p>
       </div>
     </header>
 
-    <main class="max-w-7xl mx-auto px-4 py-6">
+    <main class="max-w-7xl mx-auto px-8 py-8">
       <div>
-        <!-- 指數選擇標籤 -->
-        <div class="bg-white rounded-lg shadow mb-6">
-          <div class="border-b border-gray-200">
-            <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+        <!-- 指數選擇標籤 - 日式風格 -->
+        <div class="jp-card mb-8">
+          <div class="border-b" style="border-color: var(--jp-border);">
+            <nav class="flex space-x-0" aria-label="Tabs">
               <button
                 v-for="index in indices"
                 :key="index.symbol"
                 @click="selectedIndex = index.symbol"
                 :class="[
                   selectedIndex === index.symbol
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
-                  'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
+                    ? 'border-b-2 font-medium'
+                    : 'border-transparent hover:bg-jp-hover',
+                  'whitespace-nowrap py-5 px-8 text-jp-base transition-all duration-200'
                 ]"
+                :style="selectedIndex === index.symbol 
+                  ? 'color: var(--jp-ink); border-color: var(--jp-ink);' 
+                  : 'color: var(--jp-ink-light);'"
               >
                 {{ index.name }}
               </button>
@@ -29,88 +36,92 @@
           </div>
         </div>
 
-        <!-- 控制面板 -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <!-- 控制面板 - 日式風格 -->
+        <div class="jp-card p-8 mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">開始日期</label>
+              <label class="block text-jp-sm font-medium mb-3" style="color: var(--jp-ink-light);">開始日期</label>
               <input 
                 type="date" 
                 v-model="startDate"
                 min="2010-01-01"
                 :max="todayStr"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="jp-input w-full"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">結束日期</label>
+              <label class="block text-jp-sm font-medium mb-3" style="color: var(--jp-ink-light);">結束日期</label>
               <input 
                 type="date" 
                 v-model="endDate"
                 min="2010-01-01"
                 :max="todayStr"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="jp-input w-full"
               />
             </div>
             <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">相關性閥值</label>
+              <label class="block text-jp-sm font-medium mb-3" style="color: var(--jp-ink-light);">相關性閥值</label>
               <input 
                 type="number" 
                 v-model="correlationThreshold"
                 step="0.01"
                 min="0"
                 max="1"
-                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                class="jp-input w-full"
               />
             </div>
             <div class="flex items-end">
               <button
                 @click="analyzeCorrelation"
                 :disabled="analyzing"
-                class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                class="jp-btn w-full rounded-jp disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {{ analyzing ? '分析中...' : '分析' }}
+                {{ analyzing ? '分析中...' : '開始分析' }}
               </button>
             </div>
           </div>
         </div>
 
-        <!-- 圖表區域 -->
-        <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <!-- 圖表區域 - 日式風格 -->
+        <div class="jp-card p-8 mb-8">
           <!-- Loading 狀態 -->
-          <div v-if="loading" class="flex items-center justify-center py-12">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+          <div v-if="loading" class="flex items-center justify-center py-16">
+            <div class="animate-spin rounded-full h-10 w-10 border-2" style="border-color: var(--jp-border); border-top-color: var(--jp-ink);"></div>
           </div>
           
           <!-- 圖表與統計 -->
           <div v-else>
-            <div class="mb-6">
-              <h2 class="text-2xl font-semibold text-gray-900 mb-2">
+            <div class="mb-8">
+              <h2 class="text-jp-xl font-medium mb-4" style="color: var(--jp-ink);">
                 {{ currentIndexName }}
               </h2>
               
-              <!-- 統計數據 -->
-              <div class="flex gap-6 text-sm">
-                <div>
-                  <span class="text-gray-500">當前價格：</span>
-                  <span class="font-semibold text-gray-900">{{ currentPrice }}</span>
+              <!-- 統計數據 - 日式分隔 -->
+              <div class="flex flex-wrap gap-8 text-jp-base">
+                <div class="flex items-center">
+                  <span style="color: var(--jp-ink-light);">當前價格</span>
+                  <span class="mx-3" style="color: var(--jp-border);">|</span>
+                  <span class="font-medium" style="color: var(--jp-ink);">{{ currentPrice }}</span>
                 </div>
-                <div>
-                  <span class="text-gray-500">漲跌幅：</span>
+                <div class="flex items-center">
+                  <span style="color: var(--jp-ink-light);">漲跌幅</span>
+                  <span class="mx-3" style="color: var(--jp-border);">|</span>
                   <span 
-                    class="font-semibold"
-                    :class="priceChange >= 0 ? 'text-green-600' : 'text-red-600'"
+                    class="font-medium"
+                    :style="priceChange >= 0 ? 'color: var(--jp-red);' : 'color: var(--jp-green);'"
                   >
                     {{ priceChange >= 0 ? '+' : '' }}{{ priceChange }}%
                   </span>
                 </div>
-                <div>
-                  <span class="text-gray-500">成交量：</span>
-                  <span class="font-semibold text-gray-900">{{ volume }}</span>
+                <div class="flex items-center">
+                  <span style="color: var(--jp-ink-light);">成交量</span>
+                  <span class="mx-3" style="color: var(--jp-border);">|</span>
+                  <span class="font-medium" style="color: var(--jp-ink);">{{ volume }}</span>
                 </div>
-                <div v-if="dataRange">
-                  <span class="text-gray-500">數據範圍：</span>
-                  <span class="font-semibold text-gray-900">{{ dataRange.start }} ~ {{ dataRange.end }} ({{ dataRange.count }} 筆)</span>
+                <div v-if="dataRange" class="flex items-center">
+                  <span style="color: var(--jp-ink-light);">數據範圍</span>
+                  <span class="mx-3" style="color: var(--jp-border);">|</span>
+                  <span class="font-medium" style="color: var(--jp-ink);">{{ dataRange.start }} ~ {{ dataRange.end }} ({{ dataRange.count }} 筆)</span>
                 </div>
               </div>
             </div>
@@ -125,15 +136,20 @@
           </div>
         </div>
 
-        <!-- 相關性分析結果 -->
-        <div v-if="correlationResults.length > 0" class="bg-white rounded-lg shadow p-6">
-          <h3 class="text-xl font-semibold text-gray-900 mb-4">
-            相關性分析結果 (閥值 ≥ {{ correlationThreshold }})
+        <!-- 相關性分析結果 - 日式風格 -->
+        <div v-if="correlationResults.length > 0" class="jp-card p-8">
+          <h3 class="text-jp-lg font-medium mb-6" style="color: var(--jp-ink);">
+            相關性分析結果
+            <span class="text-jp-sm font-normal ml-3" style="color: var(--jp-ink-light);">
+              閥值 ≥ {{ correlationThreshold }}
+            </span>
           </h3>
-          <CorrelationTable 
-            :data="correlationResults"
-            @select-stock="handleSelectStock"
-          />
+          <div class="max-h-[450px] overflow-y-auto">
+            <CorrelationTable 
+              :data="correlationResults"
+              @select-stock="handleSelectStock"
+            />
+          </div>
         </div>
       </div>
     </main>
