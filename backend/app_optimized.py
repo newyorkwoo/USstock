@@ -62,7 +62,7 @@ INDICES = {
 
 # 指數對應的股票數據目錄
 INDEX_DATA_DIRS = {
-    '^IXIC': '/app/data/stocks',          # NASDAQ 股票數據目錄
+    '^IXIC': '/app/data/nasdaq_stocks',   # NASDAQ 股票數據目錄
     '^DJI': '/app/data/dow_jones_stocks', # 道瓊工業指數股票數據目錄
     '^GSPC': '/app/data/sp500_stocks'     # S&P 500 股票數據目錄
 }
@@ -446,6 +446,45 @@ def get_nasdaq_tickers():
         print(f"獲取股票列表錯誤: {e}")
         return []
 
+def get_stock_data_with_cache(symbol, start_date='2020-01-01', end_date=None, data_dir=None):
+    """獲取股票數據（優先使用本地存儲）"""
+    if end_date is None:
+        end_date = datetime.now().strftime('%Y-%m-%d')
+    
+    # 1. 嘗試從指定目錄加載本地數據
+    if data_dir:
+        local_file = os.path.join(data_dir, f"{symbol}.json.gz")
+        if os.path.exists(local_file):
+            try:
+                with gzip.open(local_file, 'rt', encoding='utf-8') as f:
+                    local_data = json.load(f)
+                
+                # 檢查日期範圍是否符合需求
+                if local_data.get('dates') and len(local_data['dates']) >= 100:
+                    # 過濾日期範圍
+                    dates = local_data['dates']
+                    closes = local_data['close']
+                    
+                    filtered_dates = []
+                    filtered_closes = []
+                    for i, date in enumerate(dates):
+                        if start_date <= date <= end_date:
+                            filtered_dates.append(date)
+                            filtered_closes.append(closes[i])
+                    
+                    if len(filtered_dates) >= 100:
+                        return {
+                            'symbol': symbol,
+                            'dates': filtered_dates,
+                            'close': filtered_closes,
+                            'source': 'local'
+                        }
+            except Exception as e:
+                print(f"讀取本地數據 {symbol} 失敗: {e}")
+    
+    # 2. 本地數據不可用，從 yfinance 下載
+    return download_stock_close_only(symbol, start_date, end_date)
+
 @cache_result(ttl=CACHE_TTL_STOCK_DATA)
 def download_stock_close_only(symbol, start_date='2020-01-01', end_date=None, retry_count=3):
     """下載單支股票的收盤價（僅用於相關性計算，帶重試機制）"""
@@ -464,7 +503,8 @@ def download_stock_close_only(symbol, start_date='2020-01-01', end_date=None, re
             return {
                 'symbol': symbol,
                 'dates': hist.index.strftime('%Y-%m-%d').tolist(),
-                'close': hist['Close'].astype(float).tolist()
+                'close': hist['Close'].astype(float).tolist(),
+                'source': 'yfinance'
             }
         except Exception as e:
             if attempt < retry_count - 1:
@@ -478,11 +518,13 @@ def download_stock_close_only(symbol, start_date='2020-01-01', end_date=None, re
     return None
 
 def download_batch_with_rate_limit(symbols: List[str], start_date: str, end_date: Optional[str], 
-                                   max_workers: int = 15, batch_size: int = 100) -> Dict[str, dict]:
-    """分批下載股票數據，帶速率限制"""
+                                   max_workers: int = 15, batch_size: int = 100, data_dir: str = None) -> Dict[str, dict]:
+    """分批下載股票數據，帶速率限制（優先使用本地數據）"""
     results = {}
     total = len(symbols)
     processed = 0
+    local_count = 0
+    download_count = 0
     
     # 將股票列表分成小批次
     for batch_start in range(0, total, batch_size):
@@ -491,10 +533,10 @@ def download_batch_with_rate_limit(symbols: List[str], start_date: str, end_date
         
         print(f"\n處理批次 {batch_start}-{batch_end} / {total}...")
         
-        # 並行下載這批股票
+        # 並行獲取這批股票（優先本地）
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_symbol = {
-                executor.submit(download_stock_close_only, symbol, start_date, end_date): symbol
+                executor.submit(get_stock_data_with_cache, symbol, start_date, end_date, data_dir): symbol
                 for symbol in batch_symbols
             }
             
@@ -504,10 +546,14 @@ def download_batch_with_rate_limit(symbols: List[str], start_date: str, end_date
                     data = future.result(timeout=30)  # 30秒超時
                     if data:
                         results[symbol] = data
+                        if data.get('source') == 'local':
+                            local_count += 1
+                        else:
+                            download_count += 1
                     processed += 1
                     
                     if processed % 50 == 0:
-                        print(f"已處理: {processed}/{total} ({processed/total*100:.1f}%)")
+                        print(f"已處理: {processed}/{total} ({processed/total*100:.1f}%) - 本地:{local_count} 下載:{download_count}")
                         
                 except Exception as e:
                     print(f"處理 {symbol} 失敗: {e}")
@@ -517,6 +563,7 @@ def download_batch_with_rate_limit(symbols: List[str], start_date: str, end_date
         if batch_end < total:
             time.sleep(1)
     
+    print(f"\n數據來源統計: 本地={local_count}, 下載={download_count}, 失敗={total-len(results)}")
     return results
 
 def calculate_correlation_batch_optimized(index_data: dict, stock_symbols: List[str], 
@@ -540,10 +587,14 @@ def calculate_correlation_batch_optimized(index_data: dict, stock_symbols: List[
     index_df['date'] = pd.to_datetime(index_df['date'])
     index_df = index_df.set_index('date')
     
-    # 第一步：分批下載所有股票數據
-    print("\n階段 1: 下載股票數據")
+    # 第一步：分批下載所有股票數據（優先使用本地）
+    print("\n階段 1: 獲取股票數據（優先本地）")
+    # 根據指數類型決定數據目錄
+    index_symbol = index_data.get('symbol', '^IXIC')
+    data_dir = INDEX_DATA_DIRS.get(index_symbol, '/app/data/nasdaq_stocks')
+    
     stock_data_dict = download_batch_with_rate_limit(
-        stock_symbols, start_date, end_date, max_workers, batch_size
+        stock_symbols, start_date, end_date, max_workers, batch_size, data_dir
     )
     
     download_time = time.time() - start_time
@@ -616,7 +667,7 @@ def calculate_correlation_batch_optimized(index_data: dict, stock_symbols: List[
 
 @app.route('/nasdaq/download-all', methods=['POST'])
 def download_all_nasdaq_stocks():
-    """下載所有那斯達克股票的歷史資料（不計算相關性）"""
+    """下載所有那斯達克股票的歷史資料到本地存儲"""
     print("\n" + "="*50)
     print("API 請求: 下載所有那斯達克股票歷史資料")
     print("="*50)
@@ -626,8 +677,9 @@ def download_all_nasdaq_stocks():
         data = request.get_json() or {}
         start_date = data.get('start_date', request.args.get('start_date', '2020-01-01'))
         end_date = data.get('end_date', request.args.get('end_date', None))
+        save_to_disk = data.get('save_to_disk', request.args.get('save_to_disk', 'true')).lower() == 'true'
         
-        print(f"參數: start_date={start_date}, end_date={end_date}")
+        print(f"參數: start_date={start_date}, end_date={end_date}, save_to_disk={save_to_disk}")
         
         # 獲取所有股票代碼
         tickers = get_nasdaq_tickers()
@@ -637,12 +689,44 @@ def download_all_nasdaq_stocks():
         
         print(f"共有 {len(tickers)} 支股票需要下載")
         
+        # 確保數據目錄存在
+        nasdaq_data_dir = '/app/data/nasdaq_stocks'
+        os.makedirs(nasdaq_data_dir, exist_ok=True)
+        
         # 分批下載所有股票數據
         stock_data_dict = download_batch_with_rate_limit(
             tickers, start_date, end_date,
             max_workers=15,
-            batch_size=100
+            batch_size=100,
+            data_dir=None  # 不使用本地緩存，強制下載
         )
+        
+        # 保存到本地磁盤
+        saved_count = 0
+        if save_to_disk:
+            print("\n保存數據到本地磁盤...")
+            for symbol, stock_data in stock_data_dict.items():
+                try:
+                    file_path = os.path.join(nasdaq_data_dir, f"{symbol}.json.gz")
+                    save_data = {
+                        'symbol': symbol,
+                        'dates': stock_data['dates'],
+                        'close': stock_data['close'],
+                        'start_date': start_date,
+                        'end_date': end_date or datetime.now().strftime('%Y-%m-%d'),
+                        'last_updated': datetime.now().isoformat(),
+                        'data_points': len(stock_data['dates'])
+                    }
+                    with gzip.open(file_path, 'wt', encoding='utf-8') as f:
+                        json.dump(save_data, f)
+                    saved_count += 1
+                    
+                    if saved_count % 100 == 0:
+                        print(f"已保存 {saved_count} 個文件...")
+                except Exception as e:
+                    print(f"保存 {symbol} 失敗: {e}")
+            
+            print(f"✓ 成功保存 {saved_count} 個文件到 {nasdaq_data_dir}")
         
         # 統計結果
         successful = len(stock_data_dict)
@@ -657,11 +741,13 @@ def download_all_nasdaq_stocks():
             'successful_downloads': successful,
             'failed_downloads': failed,
             'success_rate': f"{successful/len(tickers)*100:.1f}%",
+            'saved_to_disk': saved_count if save_to_disk else 0,
             'total_data_points': total_data_points,
             'date_range': {
                 'start': start_date,
                 'end': end_date or datetime.now().strftime('%Y-%m-%d')
             },
+            'data_directory': nasdaq_data_dir if save_to_disk else None,
             'downloaded_symbols': list(stock_data_dict.keys())[:50]  # 只返回前50個作為示例
         }
         
@@ -746,6 +832,10 @@ def get_all_nasdaq_correlation():
         
         if index_data is None:
             return jsonify({'error': '無法獲取指數數據'}), 500
+        
+        # 確保 index_data 包含 symbol
+        if 'symbol' not in index_data:
+            index_data['symbol'] = '^IXIC'
         
         # 獲取所有股票代碼
         tickers = get_nasdaq_tickers()

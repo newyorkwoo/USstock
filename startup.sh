@@ -102,7 +102,7 @@ data = {
     'download_time': now.isoformat()
 }
 
-with gzip.open('/app/data/stocks/DJI.json.gz', 'wt') as f:
+with gzip.open('/app/data/stocks/^DJI.json.gz', 'wt') as f:
     json.dump(data, f)
 
 print(f'✓ 道瓊工業指數: {dates[0]} ~ {dates[-1]} ({len(dates)} 筆)')
