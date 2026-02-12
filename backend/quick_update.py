@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""Quick update for specific stocks using direct Yahoo Finance API"""
+"""
+快速更新腳本 — 使用 Yahoo Finance v8 直接 API
+繞過 yfinance 函式庫的速率限制，直接更新所有過期的股票數據
+"""
 import urllib.request
 import json
 import time
 import gzip
 import os
 import sys
+from datetime import datetime, timedelta
 
-def fetch_yahoo_direct(symbol, start_date='2026-02-08'):
+def fetch_yahoo_direct(symbol, start_date):
     """Fetch stock data directly from Yahoo Finance API (bypasses yfinance rate limit)"""
     period1 = int(time.mktime(time.strptime(start_date, '%Y-%m-%d')))
     period2 = int(time.time())
     
-    url = f'https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?period1={period1}&period2={period2}&interval=1d'
+    url = f'https://query2.finance.yahoo.com/v8/finance/chart/{symbol}?period1={period1}&period2={period2}&interval=1d'
     req = urllib.request.Request(url)
     req.add_header('User-Agent', 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)')
     
@@ -20,7 +24,9 @@ def fetch_yahoo_direct(symbol, start_date='2026-02-08'):
         data = json.loads(resp.read())
     
     result = data['chart']['result'][0]
-    timestamps = result['timestamp']
+    timestamps = result.get('timestamp', [])
+    if not timestamps:
+        return [], []
     closes = result['indicators']['quote'][0]['close']
     
     dates = []
@@ -28,7 +34,7 @@ def fetch_yahoo_direct(symbol, start_date='2026-02-08'):
     for ts, c in zip(timestamps, closes):
         if c is not None:
             dates.append(time.strftime('%Y-%m-%d', time.localtime(ts)))
-            prices.append(float(c))
+            prices.append(round(float(c), 6))
     
     return dates, prices
 
@@ -62,8 +68,12 @@ def update_stock_file(file_path, new_dates, new_closes):
     return added
 
 def main():
-    # Update all stocks in nasdaq_stocks that are behind
-    data_dirs = ['/app/data/nasdaq_stocks', '/app/data/stocks']
+    # Determine dynamic start date: 5 days ago
+    start_date = (datetime.now() - timedelta(days=5)).strftime('%Y-%m-%d')
+    today = datetime.now().strftime('%Y-%m-%d')
+    
+    # Update all stocks in nasdaq_stocks and sp500_stocks that are behind
+    data_dirs = ['/app/data/nasdaq_stocks', '/app/data/sp500_stocks', '/app/data/stocks']
     
     # Find all unique symbols that need updating
     symbols_to_update = set()
@@ -78,21 +88,23 @@ def main():
                 with gzip.open(fpath, 'rt') as f:
                     d = json.load(f)
                 dates = d.get('dates', [])
-                if dates and dates[-1] < '2026-02-11':
-                    symbols_to_update.add(fname.replace('.json.gz', ''))
+                if dates:
+                    last_dt = datetime.strptime(dates[-1], '%Y-%m-%d')
+                    if (datetime.now() - last_dt).days > 1:
+                        symbols_to_update.add(fname.replace('.json.gz', ''))
             except:
                 pass
     
-    print(f'Found {len(symbols_to_update)} stocks needing update to 2026-02-11')
+    print(f'Found {len(symbols_to_update)} stocks needing update (start_date={start_date})')
     
     success = 0
     failed = 0
     
     for i, symbol in enumerate(sorted(symbols_to_update)):
         try:
-            new_dates, new_closes = fetch_yahoo_direct(symbol, '2026-02-08')
+            new_dates, new_closes = fetch_yahoo_direct(symbol, start_date)
             
-            if not new_dates or new_dates[-1] < '2026-02-11':
+            if not new_dates:
                 failed += 1
                 continue
             
