@@ -8,11 +8,12 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 # 設置工作目錄
 WORKDIR /app
 
-# 安裝運行時依賴
+# 安裝運行時依賴（包括 cron）
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     curl \
     tzdata \
+    cron \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -23,11 +24,20 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 複製應用程式代碼
 COPY . .
 
+# 設置 crontab
+COPY crontab /etc/cron.d/update-indices
+RUN chmod 0644 /etc/cron.d/update-indices \
+    && crontab /etc/cron.d/update-indices \
+    && touch /var/log/cron.log
+
+# 設置啟動腳本權限
+RUN chmod +x /app/entrypoint.sh /app/update_indices.py
+
 # 創建數據目錄
 RUN mkdir -p /app/data
 
 # 暴露後端端口
 EXPOSE 8000
 
-# 使用 Gunicorn 啟動（生產環境）
-CMD ["gunicorn", "--config", "gunicorn_config.py", "app_optimized:app"]
+# 使用啟動腳本（同時啟動 Cron 和 Gunicorn）
+CMD ["/app/entrypoint.sh"]

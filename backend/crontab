@@ -1,0 +1,7 @@
+# 股票指數自動更新 Cron 配置
+# 每天台北時間早上 9:00 更新一次（美股開盤前）
+# 每天台北時間晚上 23:00 更新一次（美股收盤後）
+
+# 分 時 日 月 週 命令
+0 9 * * * cd /app && /usr/local/bin/python /app/update_indices.py >> /var/log/update_indices.log 2>&1
+0 23 * * * cd /app && /usr/local/bin/python /app/update_indices.py >> /var/log/update_indices.log 2>&1

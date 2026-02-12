@@ -1020,27 +1020,33 @@ def get_stock_from_local(symbol):
         
         print(f"從本地獲取股票數據: {symbol}, 日期區間: {start_date} 至 {end_date or '今日'}")
         
-        # 嘗試從多個目錄加載股票數據
+        # 嘗試從多個目錄加載股票數據，選擇最新的版本
         stock_data = None
+        best_date = ''
         tried_dirs = []
         
-        # 先嘗試從所有可能的目錄加載
+        # 搜索所有可能的目錄，取最新數據
         possible_dirs = [
-            '/app/data/stocks',          # NASDAQ
+            '/app/data/nasdaq_stocks',   # NASDAQ 股票（更新腳本寫入）
+            '/app/data/stocks',          # NASDAQ（舊目錄）
             '/app/data/dow_jones_stocks', # 道瓊工業指數
             '/app/data/sp500_stocks'     # S&P 500
         ]
         
+        import gzip
         for data_dir in possible_dirs:
             tried_dirs.append(data_dir)
             file_path = os.path.join(data_dir, f"{symbol}.json.gz")
             if os.path.exists(file_path):
-                print(f"  ✓ 在 {data_dir} 找到 {symbol}")
                 try:
-                    import gzip
                     with gzip.open(file_path, 'rt', encoding='utf-8') as f:
-                        stock_data = json.load(f)
-                    break
+                        candidate = json.load(f)
+                    dates = candidate.get('dates', candidate.get('Date', []))
+                    last_date = dates[-1] if dates else ''
+                    if last_date > best_date:
+                        stock_data = candidate
+                        best_date = last_date
+                        print(f"  ✓ 在 {data_dir} 找到 {symbol} (最新: {last_date})")
                 except Exception as e:
                     print(f"  ✗ 從 {file_path} 加載失敗: {e}")
                     continue
