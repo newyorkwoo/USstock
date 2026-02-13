@@ -13,9 +13,9 @@ mkdir -p /var/log
 touch /var/log/update_indices.log
 chmod 666 /var/log/update_indices.log
 
-# 啟動時執行一次數據更新
-echo "執行初始數據更新..."
-python /app/update_indices.py || echo "初始更新失敗，將在下次 cron 執行時重試"
+# 啟動時強制更新所有三大股市個股歷史數據
+echo "強制更新美國三大股市所有個股歷史數據..."
+python /app/update_indices.py --force || echo "初始更新失敗，將在下次 cron 執行時重試"
 
 # 啟動 cron 服務
 echo "啟動 Cron 定時任務..."
