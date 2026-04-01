@@ -21,6 +21,19 @@ import { CandlestickController, CandlestickElement } from 'chartjs-chart-financi
 
 Chart.register(...registerables, annotationPlugin, zoomPlugin, CandlestickController, CandlestickElement)
 
+// 亞洲慣例：上漲=紅、下跌=綠
+// library 邏輯：close < open → up；close > open → down（命名反直覺）
+Chart.defaults.elements.candlestick.backgroundColors = {
+  up:        'rgba(58, 95, 58, 0.85)',    // 下跌（close < open）：松葉綠
+  down:      'rgba(197, 61, 67, 0.85)',   // 上漲（close > open）：朱紅
+  unchanged: 'rgba(92, 92, 92, 0.7)'
+}
+Chart.defaults.elements.candlestick.borderColors = {
+  up:        'rgb(58, 95, 58)',
+  down:      'rgb(197, 61, 67)',
+  unchanged: 'rgb(92, 92, 92)'
+}
+
 export default {
   name: 'KLineChart',
   props: {
@@ -86,18 +99,6 @@ export default {
             l: d.low,
             c: d.close
           })),
-          // 庫邏輯：close < open → up；close > open → down
-          // 亞洲慣例：上漲=紅、下跌=綠，故對調
-          backgroundColors: {
-            up:        'rgba(58, 95, 58, 0.85)',    // 下跌（close<open）：松葉綠
-            down:      'rgba(197, 61, 67, 0.85)',   // 上漲（close>open）：朱紅
-            unchanged: 'rgba(92, 92, 92, 0.7)'
-          },
-          borderColors: {
-            up:        'rgb(58, 95, 58)',
-            down:      'rgb(197, 61, 67)',
-            unchanged: 'rgb(92, 92, 92)'
-          },
           yAxisID: 'y'
         })
       } else {
