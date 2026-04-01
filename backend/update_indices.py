@@ -43,7 +43,7 @@ FORCE_UPDATE = False
 # ============================================================
 
 def fetch_yahoo_direct(symbol, start_date):
-    """使用 Yahoo Finance v8 chart API 直接取得數據（繞過 yfinance 限速）"""
+    """使用 Yahoo Finance v8 chart API 直接取得完整 OHLC 數據"""
     period1 = int(time.mktime(time.strptime(start_date, '%Y-%m-%d')))
     period2 = int(time.time())
 
@@ -56,15 +56,24 @@ def fetch_yahoo_direct(symbol, start_date):
     result = data['chart']['result'][0]
     timestamps = result.get('timestamp', [])
     if not timestamps:
-        return [], []
-    closes = result['indicators']['quote'][0]['close']
+        return {}, [], []
+    quote = result['indicators']['quote'][0]
+    closes  = quote.get('close',  [None] * len(timestamps))
+    opens   = quote.get('open',   [None] * len(timestamps))
+    highs   = quote.get('high',   [None] * len(timestamps))
+    lows    = quote.get('low',    [None] * len(timestamps))
+    volumes = quote.get('volume', [None] * len(timestamps))
 
-    dates, prices = [], []
-    for ts, c in zip(timestamps, closes):
+    dates, ohlcv = [], {'open': [], 'high': [], 'low': [], 'close': [], 'volume': []}
+    for ts, o, h, l, c, v in zip(timestamps, opens, highs, lows, closes, volumes):
         if c is not None:
             dates.append(time.strftime('%Y-%m-%d', time.localtime(ts)))
-            prices.append(round(float(c), 6))
-    return dates, prices
+            ohlcv['open'].append(round(float(o), 6) if o is not None else round(float(c), 6))
+            ohlcv['high'].append(round(float(h), 6) if h is not None else round(float(c), 6))
+            ohlcv['low'].append(round(float(l), 6)  if l is not None else round(float(c), 6))
+            ohlcv['close'].append(round(float(c), 6))
+            ohlcv['volume'].append(int(v) if v is not None else 0)
+    return ohlcv, dates, ohlcv['close']
 
 
 # ============================================================
@@ -76,22 +85,29 @@ def update_index(symbol, name):
     try:
         print(f'\n正在更新 {name} ({symbol})...', flush=True)
 
-        dates, close_prices = None, None
+        dates, close_prices, ohlcv = None, None, None
 
-        # 方法 1: yfinance
+        # 方法 1: yfinance（含完整 OHLC）
         try:
             ticker = yf.Ticker(symbol)
             hist = ticker.history(start='2010-01-01')
             if not hist.empty:
                 dates = hist.index.strftime('%Y-%m-%d').tolist()
                 close_prices = hist['Close'].astype(float).tolist()
+                ohlcv = {
+                    'open':   hist['Open'].astype(float).tolist(),
+                    'high':   hist['High'].astype(float).tolist(),
+                    'low':    hist['Low'].astype(float).tolist(),
+                    'close':  close_prices,
+                    'volume': hist['Volume'].astype(int).tolist()
+                }
         except Exception as e:
             print(f'  yfinance 失敗 ({e}), 嘗試直接 API...', flush=True)
 
         # 方法 2: 直接 API（如果 yfinance 失敗）
         if not dates:
             try:
-                dates, close_prices = fetch_yahoo_direct(symbol, '2010-01-01')
+                ohlcv, dates, close_prices = fetch_yahoo_direct(symbol, '2010-01-01')
             except Exception as e2:
                 print(f'  直接 API 也失敗: {e2}', flush=True)
                 return False
@@ -117,6 +133,11 @@ def update_index(symbol, name):
             'end_date': dates[-1],
             'download_time': datetime.now().isoformat()
         }
+        if ohlcv:
+            data['open']   = ohlcv['open']
+            data['high']   = ohlcv['high']
+            data['low']    = ohlcv['low']
+            data['volume'] = ohlcv['volume']
 
         file_path = os.path.join(DATA_DIR, f'{symbol}.json.gz')
         os.makedirs(DATA_DIR, exist_ok=True)
@@ -163,56 +184,71 @@ def _update_single_stock(file_path, use_direct_api=False):
 
         # 從最後日期前一天開始（確保銜接）
         start = (last_dt - timedelta(days=1)).strftime('%Y-%m-%d')
-        new_dates, new_close = None, None
+        new_dates, new_ohlcv = None, None
 
         if use_direct_api:
-            # 直接使用 Yahoo v8 API
             try:
-                new_dates, new_close = fetch_yahoo_direct(symbol, start)
+                new_ohlcv, new_dates, _ = fetch_yahoo_direct(symbol, start)
             except:
                 pass
         else:
-            # 先嘗試 yfinance
             try:
                 ticker = yf.Ticker(symbol)
                 hist = ticker.history(start=start)
                 if not hist.empty:
                     new_dates = hist.index.strftime('%Y-%m-%d').tolist()
-                    new_close = hist['Close'].astype(float).tolist()
+                    new_ohlcv = {
+                        'open':   hist['Open'].astype(float).tolist(),
+                        'high':   hist['High'].astype(float).tolist(),
+                        'low':    hist['Low'].astype(float).tolist(),
+                        'close':  hist['Close'].astype(float).tolist(),
+                        'volume': hist['Volume'].astype(int).tolist()
+                    }
             except Exception as e:
                 err_msg = str(e)
                 if 'Too Many' in err_msg or 'Rate' in err_msg:
                     return symbol, False, 'RATE_LIMITED'
 
-            # yfinance 失敗 → 後備直接 API
             if not new_dates:
                 try:
-                    new_dates, new_close = fetch_yahoo_direct(symbol, start)
+                    new_ohlcv, new_dates, _ = fetch_yahoo_direct(symbol, start)
                 except:
                     pass
 
         if not new_dates:
             return symbol, False, 'no new data'
 
-        # 合併：去重並追加
+        # 合併：去重並追加（同時處理 OHLC）
         existing_set = set(dates)
-        old_close = data.get('close', [])
+        old_close  = data.get('close',  [])
+        old_open   = data.get('open',   [None] * len(dates))
+        old_high   = data.get('high',   [None] * len(dates))
+        old_low    = data.get('low',    [None] * len(dates))
+        old_volume = data.get('volume', [0] * len(dates))
         added = 0
         for i, d in enumerate(new_dates):
             if d not in existing_set:
                 dates.append(d)
-                old_close.append(new_close[i])
+                old_close.append(new_ohlcv['close'][i])
+                old_open.append(new_ohlcv['open'][i])
+                old_high.append(new_ohlcv['high'][i])
+                old_low.append(new_ohlcv['low'][i])
+                old_volume.append(new_ohlcv['volume'][i])
                 added += 1
 
         if added == 0:
             return symbol, True, 'already up-to-date'
 
-        paired = sorted(zip(dates, old_close))
-        data['dates'] = [p[0] for p in paired]
-        data['close'] = [p[1] for p in paired]
-        data['end_date'] = data['dates'][-1]
+        paired = sorted(zip(dates, old_close, old_open, old_high, old_low, old_volume))
+        data['dates']  = [p[0] for p in paired]
+        data['close']  = [p[1] for p in paired]
+        data['open']   = [p[2] for p in paired]
+        data['high']   = [p[3] for p in paired]
+        data['low']    = [p[4] for p in paired]
+        data['volume'] = [p[5] for p in paired]
+        data['end_date']     = data['dates'][-1]
         data['last_updated'] = datetime.now().isoformat()
-        data['data_points'] = len(data['dates'])
+        data['data_points']  = len(data['dates'])
 
         with gzip.open(file_path, 'wt', encoding='utf-8') as f:
             json.dump(data, f)
@@ -322,12 +358,18 @@ def _download_new_stock(symbol, data_dir, start_date='2010-01-01'):
             if not hist.empty:
                 dates = hist.index.strftime('%Y-%m-%d').tolist()
                 close_prices = hist['Close'].astype(float).tolist()
+                ohlcv = {
+                    'open':   hist['Open'].astype(float).tolist(),
+                    'high':   hist['High'].astype(float).tolist(),
+                    'low':    hist['Low'].astype(float).tolist(),
+                    'volume': hist['Volume'].astype(int).tolist()
+                }
         except:
             pass
         # 後備 API
         if not dates:
             try:
-                dates, close_prices = fetch_yahoo_direct(symbol, start_date)
+                ohlcv, dates, close_prices = fetch_yahoo_direct(symbol, start_date)
             except:
                 pass
         if not dates:
@@ -350,6 +392,11 @@ def _download_new_stock(symbol, data_dir, start_date='2010-01-01'):
             'download_time': datetime.now().isoformat(),
             'data_points': len(dates)
         }
+        if ohlcv:
+            data['open']   = ohlcv['open']
+            data['high']   = ohlcv['high']
+            data['low']    = ohlcv['low']
+            data['volume'] = ohlcv['volume']
         os.makedirs(data_dir, exist_ok=True)
         with gzip.open(file_path, 'wt', encoding='utf-8') as f:
             json.dump(data, f)
