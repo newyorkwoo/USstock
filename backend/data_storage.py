@@ -75,24 +75,18 @@ def get_stock_file_path(symbol: str) -> str:
     # 不再移除 ^ 符號，保持原始符號
     return os.path.join(DATA_DIR, f"{symbol}.json.gz")
 
-def save_stock_data(symbol: str, dates: List[str], close_prices: List[float], 
-                    start_date: str, end_date: str) -> bool:
+def save_stock_data(symbol: str, dates: List[str], close_prices: List[float],
+                    start_date: str, end_date: str,
+                    open_prices: List[float] = None,
+                    high_prices: List[float] = None,
+                    low_prices: List[float] = None,
+                    volumes: List[int] = None) -> bool:
     """
-    保存股票數據到本地文件
-    
-    Args:
-        symbol: 股票代碼
-        dates: 日期列表
-        close_prices: 收盤價列表
-        start_date: 起始日期
-        end_date: 結束日期
-    
-    Returns:
-        是否保存成功
+    保存股票數據到本地文件（含完整 OHLC）
     """
     try:
         ensure_data_dir()
-        
+
         data = {
             'symbol': symbol,
             'dates': dates,
@@ -102,13 +96,19 @@ def save_stock_data(symbol: str, dates: List[str], close_prices: List[float],
             'last_updated': datetime.now().isoformat(),
             'data_points': len(dates)
         }
-        
+        if open_prices:
+            data['open'] = open_prices
+        if high_prices:
+            data['high'] = high_prices
+        if low_prices:
+            data['low'] = low_prices
+        if volumes:
+            data['volume'] = volumes
+
         file_path = get_stock_file_path(symbol)
-        
-        # 使用 gzip 壓縮保存
         with gzip.open(file_path, 'wt', encoding='utf-8') as f:
             json.dump(data, f)
-        
+
         return True
     except Exception as e:
         print(f"保存 {symbol} 數據失敗: {e}")
@@ -207,12 +207,16 @@ def download_and_save_stock(symbol: str, start_date: str = '2010-01-01',
         if hist.empty or len(hist) < 100:
             return False
         
-        # 提取日期和收盤價
+        # 提取完整 OHLC 數據
         dates = hist.index.strftime('%Y-%m-%d').tolist()
-        close_prices = hist['Close'].tolist()
-        
-        # 保存到本地
-        return save_stock_data(symbol, dates, close_prices, start_date, end_date)
+        close_prices = hist['Close'].astype(float).tolist()
+        open_prices = hist['Open'].astype(float).tolist()
+        high_prices = hist['High'].astype(float).tolist()
+        low_prices = hist['Low'].astype(float).tolist()
+        volumes = hist['Volume'].astype(int).tolist()
+
+        return save_stock_data(symbol, dates, close_prices, start_date, end_date,
+                               open_prices, high_prices, low_prices, volumes)
     
     except Exception as e:
         print(f"下載 {symbol} 失敗: {e}")
@@ -260,16 +264,22 @@ def update_stock_incremental(symbol: str, end_date: str = None) -> bool:
             # 沒有新數據
             return True
         
-        # 合併數據
+        # 舊數據若無 OHLC，重新完整下載
+        if 'open' not in old_data:
+            return download_and_save_stock(symbol, '2010-01-01', end_date)
+
+        # 合併完整 OHLC 數據
         new_dates = new_hist.index.strftime('%Y-%m-%d').tolist()
-        new_close_prices = new_hist['Close'].tolist()
-        
         combined_dates = old_data['dates'] + new_dates
-        combined_close = old_data['close'] + new_close_prices
-        
-        # 保存合併後的數據
-        return save_stock_data(symbol, combined_dates, combined_close, 
-                              old_data['start_date'], end_date)
+        combined_close = old_data['close'] + new_hist['Close'].astype(float).tolist()
+        combined_open = old_data['open'] + new_hist['Open'].astype(float).tolist()
+        combined_high = old_data['high'] + new_hist['High'].astype(float).tolist()
+        combined_low = old_data['low'] + new_hist['Low'].astype(float).tolist()
+        combined_volume = old_data.get('volume', []) + new_hist['Volume'].astype(int).tolist()
+
+        return save_stock_data(symbol, combined_dates, combined_close,
+                               old_data['start_date'], end_date,
+                               combined_open, combined_high, combined_low, combined_volume)
     
     except Exception as e:
         print(f"增量更新 {symbol} 失敗: {e}")

@@ -217,37 +217,40 @@ def get_index_data(symbol):
         # 根據日期範圍過濾數據
         dates = local_data['dates']
         close_prices = local_data['close']
-        
+        open_prices = local_data.get('open')
+        high_prices = local_data.get('high')
+        low_prices = local_data.get('low')
+        vol_data = local_data.get('volume')
+        has_ohlc = bool(open_prices and high_prices and low_prices)
+
         # 找到日期範圍內的索引
         start_idx = 0
         end_idx = len(dates)
-        
+
         for i, date in enumerate(dates):
             if date >= start_date:
                 start_idx = i
                 break
-        
+
         if end_date:
             for i in range(len(dates) - 1, -1, -1):
                 if dates[i] <= end_date:
                     end_idx = i + 1
                     break
-        
+
         # 過濾後的數據
         filtered_dates = dates[start_idx:end_idx]
         filtered_closes = close_prices[start_idx:end_idx]
-        
+
         if filtered_dates:
-            # 轉換為 API 格式
             data = [
                 {
                     'date': filtered_dates[i],
+                    'open':  open_prices[start_idx + i]  if has_ohlc else filtered_closes[i],
+                    'high':  high_prices[start_idx + i]  if has_ohlc else filtered_closes[i],
+                    'low':   low_prices[start_idx + i]   if has_ohlc else filtered_closes[i],
                     'close': filtered_closes[i],
-                    # 這些欄位在本地數據中可能不存在，使用 close 作為替代
-                    'open': filtered_closes[i],
-                    'high': filtered_closes[i],
-                    'low': filtered_closes[i],
-                    'volume': 0
+                    'volume': vol_data[start_idx + i] if vol_data else 0
                 }
                 for i in range(len(filtered_dates))
             ]

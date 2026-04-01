@@ -17,8 +17,9 @@ import { Chart, registerables } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation'
 import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-date-fns'
+import { CandlestickController, CandlestickElement } from 'chartjs-chart-financial'
 
-Chart.register(...registerables, annotationPlugin, zoomPlugin)
+Chart.register(...registerables, annotationPlugin, zoomPlugin, CandlestickController, CandlestickElement)
 
 export default {
   name: 'KLineChart',
@@ -54,67 +55,77 @@ export default {
 
     const createChart = async () => {
       await nextTick()
-      if (!chartCanvas.value || !props.data || props.data.length === 0) {
-        console.log('Chart creation skipped:', {
-          hasCanvas: !!chartCanvas.value,
-          hasData: !!props.data,
-          dataLength: props.data?.length
-        })
-        return
-      }
+      if (!chartCanvas.value || !props.data || props.data.length === 0) return
 
-      // 銷毀舊圖表
       if (chartInstance) {
         chartInstance.destroy()
         isZoomed.value = false
       }
 
       const ctx = chartCanvas.value.getContext('2d')
-      
-      // 準備折線圖數據格式 - 使用收盤價
-      // 使用 ISO 日期格式，Chart.js time scale 會自動解析
-      const lineData = props.data.map(d => ({
-        x: d.date,
-        y: d.close
-      }))
 
-      console.log('Creating chart with data points:', lineData.length)
+      // 判斷是否有真實 OHLC（非 close 填充）
+      const hasOHLC = props.data.some(d =>
+        d.open !== d.close || d.high !== d.close || d.low !== d.close
+      )
 
-      // 準備數據集陣列
-      const datasets = [
-        {
+      const timestamps = props.data.map(d => new Date(d.date).getTime())
+      const minDate = new Date(Math.min(...timestamps))
+      const maxDate = new Date(Math.max(...timestamps))
+
+      const datasets = []
+
+      if (hasOHLC) {
+        datasets.push({
+          type: 'candlestick',
+          label: props.symbol,
+          data: props.data.map(d => ({
+            x: new Date(d.date).getTime(),
+            o: d.open,
+            h: d.high,
+            l: d.low,
+            c: d.close
+          })),
+          color: {
+            up: 'rgba(197, 61, 67, 0.85)',      // 上漲：朱色
+            down: 'rgba(58, 95, 58, 0.85)',      // 下跌：松葉色
+            unchanged: 'rgba(92, 92, 92, 0.7)'
+          },
+          borderColor: {
+            up: 'rgb(197, 61, 67)',
+            down: 'rgb(58, 95, 58)',
+            unchanged: 'rgb(92, 92, 92)'
+          },
+          yAxisID: 'y'
+        })
+      } else {
+        // 本地數據尚未重建時回退為折線圖
+        datasets.push({
+          type: 'line',
           label: props.symbol + ' 收盤價',
-          data: lineData,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          data: props.data.map(d => ({ x: d.date, y: d.close })),
+          borderColor: '#2E4A62',
+          backgroundColor: 'rgba(46, 74, 98, 0.08)',
           borderWidth: 2,
           fill: true,
           tension: 0.1,
           pointRadius: 0,
           pointHoverRadius: 4,
           yAxisID: 'y'
-        }
-      ]
+        })
+      }
 
-      // 如果有選中的股票數據，添加到圖表中
-      console.log('Stock data check:', { 
-        hasStockData: !!props.stockData, 
-        stockSymbol: props.stockData?.symbol,
-        dataLength: props.stockData?.data?.length 
-      })
-      
-      if (props.stockData && props.stockData.data && props.stockData.data.length > 0) {
-        console.log('Adding stock overlay:', props.stockData.symbol)
-        const stockLineData = props.stockData.data.map(d => ({
-          x: d.date,
-          y: d.close
-        }))
-        
+      // 疊加個股折線
+      if (props.stockData?.data?.length > 0) {
         datasets.push({
+          type: 'line',
           label: props.stockData.symbol + ' 收盤價',
-          data: stockLineData,
-          borderColor: '#ef4444',
-          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          data: props.stockData.data.map(d => ({
+            x: new Date(d.date).getTime(),
+            y: d.close
+          })),
+          borderColor: '#C49A00',
+          backgroundColor: 'rgba(196, 154, 0, 0.08)',
           borderWidth: 2,
           fill: false,
           tension: 0.1,
@@ -124,48 +135,63 @@ export default {
         })
       }
 
-      try {
-        // 計算數據的日期範圍
-        const dates = lineData.map(d => new Date(d.x).getTime())
-        const minDate = new Date(Math.min(...dates))
-        const maxDate = new Date(Math.max(...dates))
-        
-        console.log('Date range:', {
-          min: minDate.toISOString().split('T')[0],
-          max: maxDate.toISOString().split('T')[0],
-          dataPoints: lineData.length
+      // 建立下跌區間標註
+      const annotations = {}
+      if (props.drawdownPeriods?.length > 0) {
+        props.drawdownPeriods.forEach((period, idx) => {
+          if (period.trough_date >= period.peak_date) {
+            annotations[`drawdown_box_${idx}`] = {
+              type: 'box',
+              xScaleID: 'x',
+              xMin: period.peak_date,
+              xMax: period.trough_date,
+              backgroundColor: 'rgba(239, 68, 68, 0.08)',
+              borderColor: 'rgba(239, 68, 68, 0.3)',
+              borderWidth: 1,
+              label: {
+                display: true,
+                content: `↓${(period.drawdown_pct * 100).toFixed(1)}%`,
+                position: 'start',
+                backgroundColor: 'rgba(255, 255, 255, 0.9)',
+                color: 'rgb(197, 61, 67)',
+                font: { size: 11, weight: 'bold' }
+              }
+            }
+          }
         })
+      }
 
-        // 創建圖表配置
-        const chartConfig = {
-        type: 'line',
-        data: {
-          datasets: datasets
-        },
+      chartInstance = new Chart(ctx, {
+        type: hasOHLC ? 'candlestick' : 'line',
+        data: { datasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
           plugins: {
             legend: {
-              display: props.stockData ? true : false,
+              display: !!props.stockData,
               position: 'top'
             },
             tooltip: {
               callbacks: {
-                label: function(context) {
+                label: (context) => {
+                  const raw = context.raw
+                  if (raw?.o !== undefined) {
+                    return [
+                      `開: ${raw.o.toFixed(2)}`,
+                      `高: ${raw.h.toFixed(2)}`,
+                      `低: ${raw.l.toFixed(2)}`,
+                      `收: ${raw.c.toFixed(2)}`
+                    ]
+                  }
                   return `收盤價: ${context.parsed.y.toFixed(2)}`
                 }
               }
             },
             zoom: {
               zoom: {
-                wheel: {
-                  enabled: true,
-                  modifierKey: null
-                },
-                pinch: {
-                  enabled: true
-                },
+                wheel: { enabled: true },
+                pinch: { enabled: true },
                 mode: 'x',
                 onZoom: () => { isZoomed.value = true }
               },
@@ -175,55 +201,12 @@ export default {
                 onPan: () => { isZoomed.value = true }
               },
               limits: {
-                x: {
-                  min: minDate,
-                  max: maxDate
-                }
+                x: { min: minDate, max: maxDate }
               }
             },
-            // 添加下跌區間標註插件
-            annotation: props.drawdownPeriods && props.drawdownPeriods.length > 0 ? {
-              annotations: props.drawdownPeriods.reduce((acc, period, idx) => {
-                // 數據驗證：確保日期格式正確且在合理範圍內
-                const peakDate = period.peak_date
-                const troughDate = period.trough_date
-                
-                // 調試日誌（開發環境）
-                if (import.meta.env.DEV) {
-                  console.log(`波段${idx + 1}: ${peakDate} → ${troughDate} (${(period.drawdown_pct * 100).toFixed(1)}%)`)
-                }
-                
-                // 驗證日期：確保谷底日期不晚於峰值日期
-                if (troughDate && peakDate && troughDate >= peakDate) {
-                  // 添加陰影區域（只標示峰值到谷底之間）
-                  // 使用 ISO 日期格式，Chart.js time scale 會自動解析
-                  acc[`drawdown_box_${idx}`] = {
-                    type: 'box',
-                    xScaleID: 'x',  // 明確指定使用 x 軸
-                    xMin: peakDate,
-                    xMax: troughDate,
-                    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                    borderColor: 'rgba(239, 68, 68, 0.3)',
-                    borderWidth: 1,
-                    label: {
-                      display: true,
-                      content: `↓${(period.drawdown_pct * 100).toFixed(1)}%`,
-                      position: 'start',
-                      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                      color: 'rgb(220, 38, 38)',
-                      font: {
-                        size: 11,
-                        weight: 'bold'
-                      }
-                    }
-                  }
-                } else {
-                  console.warn(`跳過無效的波段數據: ${peakDate} → ${troughDate}`)
-                }
-                
-                return acc
-              }, {})
-            } : undefined
+            annotation: Object.keys(annotations).length > 0
+              ? { annotations }
+              : undefined
           },
           scales: {
             x: {
@@ -232,9 +215,7 @@ export default {
               max: maxDate,
               time: {
                 unit: 'month',
-                displayFormats: {
-                  month: 'yyyy-MM'
-                },
+                displayFormats: { month: 'yyyy-MM' },
                 tooltipFormat: 'yyyy-MM-dd'
               },
               ticks: {
@@ -249,46 +230,34 @@ export default {
               beginAtZero: false,
               position: 'right',
               title: {
-                display: props.stockData ? true : false,
+                display: !!props.stockData,
                 text: props.symbol
               }
             },
             y1: {
-              display: props.stockData ? true : false,
+              display: !!props.stockData,
               beginAtZero: false,
               position: 'left',
               title: {
                 display: true,
-                text: props.stockData ? props.stockData.symbol : ''
+                text: props.stockData?.symbol || ''
               },
-              grid: {
-                drawOnChartArea: false
-              }
+              grid: { drawOnChartArea: false }
             }
           }
-        },
-      }
-      
-      chartInstance = new Chart(ctx, chartConfig)
-      console.log('Chart created successfully with', props.drawdownPeriods?.length || 0, 'drawdown periods')
-    } catch (error) {
-      console.error('Error creating chart:', error)
+        }
+      })
     }
-  }
 
-    onMounted(() => {
-      createChart()
-    })
+    onMounted(createChart)
 
-    watch(() => [props.data, props.symbol, props.stockData, props.drawdownPeriods], () => {
-      createChart()
-    }, { deep: true })
+    watch(
+      () => [props.data, props.symbol, props.stockData, props.drawdownPeriods],
+      createChart,
+      { deep: true }
+    )
 
-    return {
-      chartCanvas,
-      isZoomed,
-      resetZoom
-    }
+    return { chartCanvas, isZoomed, resetZoom }
   }
 }
 </script>
