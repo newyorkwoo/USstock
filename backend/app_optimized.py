@@ -2,7 +2,6 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import yfinance as yf
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from scipy.stats import pearsonr
 import redis
@@ -11,22 +10,14 @@ import threading
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import gzip
-import io
 import time
 import os
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 
 import data_storage  # 導入本地數據存儲模組
 app = Flask(__name__)
 CORS(app)
 
-# 數據更新標誌（用於追蹤後台更新狀態）
-DATA_UPDATE_STATUS = {
-    'in_progress': False,
-    'last_update': None,
-    'error': None
-}
-DATA_UPDATE_LOCK = threading.Lock()
 
 # Redis 配置
 try:
