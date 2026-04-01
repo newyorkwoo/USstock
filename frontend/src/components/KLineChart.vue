@@ -86,14 +86,16 @@ export default {
             l: d.low,
             c: d.close
           })),
-          color: {
-            up: 'rgba(197, 61, 67, 0.85)',      // 上漲：朱色
-            down: 'rgba(58, 95, 58, 0.85)',      // 下跌：松葉色
+          // 庫邏輯：close < open → up；close > open → down
+          // 亞洲慣例：上漲=紅、下跌=綠，故對調
+          backgroundColors: {
+            up:        'rgba(58, 95, 58, 0.85)',    // 下跌（close<open）：松葉綠
+            down:      'rgba(197, 61, 67, 0.85)',   // 上漲（close>open）：朱紅
             unchanged: 'rgba(92, 92, 92, 0.7)'
           },
-          borderColor: {
-            up: 'rgb(197, 61, 67)',
-            down: 'rgb(58, 95, 58)',
+          borderColors: {
+            up:        'rgb(58, 95, 58)',
+            down:      'rgb(197, 61, 67)',
             unchanged: 'rgb(92, 92, 92)'
           },
           yAxisID: 'y'
