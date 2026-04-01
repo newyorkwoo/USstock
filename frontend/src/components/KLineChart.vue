@@ -1,16 +1,24 @@
 <template>
-  <div class="w-full h-96">
+  <div class="w-full h-96 relative">
     <canvas ref="chartCanvas"></canvas>
+    <button
+      v-if="isZoomed"
+      @click="resetZoom"
+      class="absolute top-2 left-2 bg-white/90 hover:bg-white text-gray-700 text-xs px-2 py-1 rounded shadow border border-gray-300 cursor-pointer z-10"
+    >
+      重置縮放
+    </button>
   </div>
 </template>
 
 <script>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import { Chart, registerables } from 'chart.js'
 import annotationPlugin from 'chartjs-plugin-annotation'
+import zoomPlugin from 'chartjs-plugin-zoom'
 import 'chartjs-adapter-date-fns'
 
-Chart.register(...registerables, annotationPlugin)
+Chart.register(...registerables, annotationPlugin, zoomPlugin)
 
 export default {
   name: 'KLineChart',
@@ -34,9 +42,18 @@ export default {
   },
   setup(props) {
     const chartCanvas = ref(null)
+    const isZoomed = ref(false)
     let chartInstance = null
 
-    const createChart = () => {
+    const resetZoom = () => {
+      if (chartInstance) {
+        chartInstance.resetZoom()
+        isZoomed.value = false
+      }
+    }
+
+    const createChart = async () => {
+      await nextTick()
       if (!chartCanvas.value || !props.data || props.data.length === 0) {
         console.log('Chart creation skipped:', {
           hasCanvas: !!chartCanvas.value,
@@ -49,6 +66,7 @@ export default {
       // 銷毀舊圖表
       if (chartInstance) {
         chartInstance.destroy()
+        isZoomed.value = false
       }
 
       const ctx = chartCanvas.value.getContext('2d')
@@ -139,6 +157,30 @@ export default {
                 }
               }
             },
+            zoom: {
+              zoom: {
+                wheel: {
+                  enabled: true,
+                  modifierKey: null
+                },
+                pinch: {
+                  enabled: true
+                },
+                mode: 'x',
+                onZoom: () => { isZoomed.value = true }
+              },
+              pan: {
+                enabled: true,
+                mode: 'x',
+                onPan: () => { isZoomed.value = true }
+              },
+              limits: {
+                x: {
+                  min: minDate,
+                  max: maxDate
+                }
+              }
+            },
             // 添加下跌區間標註插件
             annotation: props.drawdownPeriods && props.drawdownPeriods.length > 0 ? {
               annotations: props.drawdownPeriods.reduce((acc, period, idx) => {
@@ -147,7 +189,7 @@ export default {
                 const troughDate = period.trough_date
                 
                 // 調試日誌（開發環境）
-                if (process.env.NODE_ENV === 'development') {
+                if (import.meta.env.DEV) {
                   console.log(`波段${idx + 1}: ${peakDate} → ${troughDate} (${(period.drawdown_pct * 100).toFixed(1)}%)`)
                 }
                 
@@ -225,11 +267,6 @@ export default {
             }
           }
         },
-        plugins: props.drawdownPeriods && props.drawdownPeriods.length > 0 ? [
-          {
-            id: 'drawdownAnnotations'
-          }
-        ] : []
       }
       
       chartInstance = new Chart(ctx, chartConfig)
@@ -248,7 +285,9 @@ export default {
     }, { deep: true })
 
     return {
-      chartCanvas
+      chartCanvas,
+      isZoomed,
+      resetZoom
     }
   }
 }

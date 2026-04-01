@@ -197,22 +197,6 @@ def download_stock_info(symbol):
     except:
         return symbol
 
-# Redis 配置
-try:
-    redis_client = redis.Redis(
-        host='redis',
-        port=6379,
-        db=0,
-        decode_responses=False,
-        socket_connect_timeout=5
-    )
-    redis_client.ping()
-    REDIS_AVAILABLE = True
-    print("✓ Redis 連接成功")
-except:
-    REDIS_AVAILABLE = False
-    print("✗ Redis 不可用，使用無緩存模式")
-
 @app.route('/api/index/<symbol>', methods=['GET'])
 def get_index_data(symbol):
     """獲取指數歷史數據（支持自定義日期範圍，優先從本地讀取）"""
@@ -677,7 +661,7 @@ def download_all_nasdaq_stocks():
         data = request.get_json() or {}
         start_date = data.get('start_date', request.args.get('start_date', '2020-01-01'))
         end_date = data.get('end_date', request.args.get('end_date', None))
-        save_to_disk = data.get('save_to_disk', request.args.get('save_to_disk', 'true')).lower() == 'true'
+        save_to_disk = str(data.get('save_to_disk', request.args.get('save_to_disk', 'true'))).lower() == 'true'
         
         print(f"參數: start_date={start_date}, end_date={end_date}, save_to_disk={save_to_disk}")
         
@@ -1033,7 +1017,6 @@ def get_stock_from_local(symbol):
             '/app/data/sp500_stocks'     # S&P 500
         ]
         
-        import gzip
         for data_dir in possible_dirs:
             tried_dirs.append(data_dir)
             file_path = os.path.join(data_dir, f"{symbol}.json.gz")
@@ -1170,7 +1153,6 @@ def analyze_correlation_from_local():
         
         def load_stock_from_dir(symbol, stocks_dir):
             """從指定目錄加載股票數據"""
-            import gzip
             file_path = os.path.join(stocks_dir, f"{symbol}.json.gz")
             try:
                 with gzip.open(file_path, 'rt', encoding='utf-8') as f:
@@ -1337,9 +1319,6 @@ def download_dow_jones_stocks():
 def get_dow_jones_download_status():
     """獲取道瓊工業指數數據下載狀態"""
     try:
-        import os
-        import json
-        
         data_dir = '/app/data/dow_jones_stocks'
         meta_file = '/app/data/dow_jones_meta.json'
         
@@ -1417,9 +1396,6 @@ def download_sp500_stocks():
 def get_sp500_download_status():
     """獲取 S&P 500 數據下載狀態"""
     try:
-        import os
-        import json
-        
         data_dir = '/app/data/sp500_stocks'
         meta_file = '/app/data/sp500_meta.json'
         
@@ -1468,7 +1444,6 @@ def get_drawdown_periods():
         # 如果本地沒有，嘗試從 yfinance 獲取
         if not stock_data:
             print(f"本地沒有 {index_symbol} 數據，嘗試從 yfinance 獲取...")
-            from datetime import datetime, timedelta
             end_date = datetime.now()
             start_date = end_date - timedelta(days=365*16)  # 獲取16年數據
             

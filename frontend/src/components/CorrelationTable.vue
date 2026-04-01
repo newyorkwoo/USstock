@@ -31,8 +31,8 @@
             ? 'background: var(--jp-hover);' 
             : ''"
           style="border-bottom: 1px solid var(--jp-border);"
-          @mouseenter="$event.target.style.background = 'var(--jp-hover)'"
-          @mouseleave="$event.target.style.background = selectedStock === stock.symbol ? 'var(--jp-hover)' : ''"
+          @mouseenter="$event.currentTarget.style.background = 'var(--jp-hover)'"
+          @mouseleave="$event.currentTarget.style.background = selectedStock === stock.symbol ? 'var(--jp-hover)' : ''"
         >
           <td 
             class="px-6 py-4 whitespace-nowrap text-jp-base font-medium cursor-pointer transition-colors"
@@ -71,7 +71,7 @@ export default {
     },
     indexName: {
       type: String,
-      required: true
+      default: ''
     },
     selectedStock: {
       type: String,
@@ -79,7 +79,7 @@ export default {
     }
   },
   emits: ['select-stock'],
-  setup(props, { emit }) {
+  setup(_, { emit }) {
     const getCorrelationLevel = (corr) => {
       const absCorr = Math.abs(corr)
       if (absCorr >= 0.8) return '高度相關'

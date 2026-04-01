@@ -85,12 +85,12 @@
         <!-- 圖表區域 - 日式風格 -->
         <div class="jp-card p-8 mb-8">
           <!-- Loading 狀態 -->
-          <div v-if="loading" class="flex items-center justify-center py-16">
+          <div v-show="loading" class="flex items-center justify-center py-16">
             <div class="animate-spin rounded-full h-10 w-10 border-2" style="border-color: var(--jp-border); border-top-color: var(--jp-ink);"></div>
           </div>
           
           <!-- 圖表與統計 -->
-          <div v-else>
+          <div v-show="!loading">
             <div class="mb-8">
               <h2 class="text-jp-xl font-medium mb-4" style="color: var(--jp-ink);">
                 {{ currentIndexName }}
@@ -264,15 +264,16 @@ export default {
 
     const loadDrawdownPeriods = async () => {
       try {
-        const cacheKey = `${selectedIndex.value}_0.15`
-        
+        const cacheKey = `${selectedIndex.value}_${startDate.value}_${endDate.value}_0.15`
+
         // 檢查緩存
         if (drawdownCache.value[cacheKey]) {
           drawdownPeriods.value = drawdownCache.value[cacheKey]
           return
         }
         
-        const response = await fetch('http://localhost:8000/storage/drawdown-periods', {
+        const storageUrl = import.meta.env.PROD ? '/storage' : 'http://localhost:8000/storage'
+        const response = await fetch(`${storageUrl}/drawdown-periods`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -320,9 +321,6 @@ export default {
           })
           
           drawdownPeriods.value = filteredPeriods
-          
-          // 緩存數據
-          const cacheKey = `${selectedIndex.value}_0.15`
           drawdownCache.value[cacheKey] = filteredPeriods
           
           console.log(`找到 ${filteredPeriods.length} 個有效波段下跌區間 (原始數據: ${data.drawdown_periods?.length || 0} 個, 過濾後: ${validPeriods.length} 個)`)
